@@ -791,20 +791,48 @@
     });
   }
 
+  // Shared token parsers — used by both the METAR decoder and the per-period
+  // TAF decoder below, instead of duplicating the same regexes twice.
+  function parseWindToken(tok){
+    var m = tok.match(/^(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?(KT|MPS)$/);
+    if(!m) return null;
+    return {dir:m[1], spd:parseInt(m[2],10), gust:m[4] ? parseInt(m[4],10) : null, unit:m[5]};
+  }
+  function parseCloudToken(tok){
+    var m = tok.match(/^(FEW|SCT|BKN|OVC)(\d{3})$/);
+    return m ? {cover:m[1], base:parseInt(m[2],10) * 100} : null;
+  }
+  function parseVisToken(tok){
+    if(tok === "P6SM") return {sm:6, plus:true};
+    var m = tok.match(/^(\d{1,2})SM$/);
+    if(m) return {sm:parseInt(m[1],10)};
+    var f = tok.match(/^(\d)\/(\d)SM$/);
+    if(f) return {sm:parseInt(f[1],10) / parseInt(f[2],10)};
+    return null;
+  }
+  function flightCategory(visSm, ceiling){
+    function catFromVis(v){
+      if(v === undefined || v === null) return "VFR";
+      if(v < 1) return "LIFR"; if(v < 3) return "IFR"; if(v < 5) return "MVFR"; return "VFR";
+    }
+    function catFromCeil(c){
+      if(c === null) return "VFR";
+      if(c < 500) return "LIFR"; if(c < 1000) return "IFR"; if(c < 3000) return "MVFR"; return "VFR";
+    }
+    var vc = catFromVis(visSm), cc = catFromCeil(ceiling);
+    return CATEGORY_RANK[vc] > CATEGORY_RANK[cc] ? vc : cc;
+  }
+
   function parseMetar(raw){
     raw = (raw || "").trim();
     if(!raw) return null;
     var out = {raw:raw, clouds:[]};
     raw.split(/\s+/).forEach(function(tok){
       if(/^\d{6}Z$/.test(tok)){ out.time = tok; return; }
-      var wm = tok.match(/^(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?(KT|MPS)$/);
-      if(wm){
-        out.windDir = wm[1]; out.windSpd = parseInt(wm[2],10);
-        out.windGust = wm[4] ? parseInt(wm[4],10) : null; out.windUnit = wm[5];
-        return;
-      }
-      var cm = tok.match(/^(FEW|SCT|BKN|OVC)(\d{3})/);
-      if(cm){ out.clouds.push({cover:cm[1], base:parseInt(cm[2],10)*100}); return; }
+      var wm = parseWindToken(tok);
+      if(wm){ out.windDir = wm.dir; out.windSpd = wm.spd; out.windGust = wm.gust; out.windUnit = wm.unit; return; }
+      var cm = parseCloudToken(tok);
+      if(cm){ out.clouds.push(cm); return; }
       var tm = tok.match(/^(M?\d{2})\/(M?\d{2})$/);
       if(tm && out.temp === undefined){
         out.temp = parseInt(tm[1].replace("M","-"),10);
@@ -816,6 +844,9 @@
       var qm = tok.match(/^Q(\d{4})$/);
       if(qm){ out.altimHpa = parseInt(qm[1],10); return; }
     });
+    // Visibility can be split across two tokens ("1 1/2SM"), which the
+    // shared single-token parseVisToken can't express, so match on the
+    // whole string here.
     var visMatch = raw.match(/\s(\d{1,2} \d\/\d|\d\/\d|\d{1,2})SM(?:\s|$)/);
     if(visMatch){
       var v = visMatch[1];
@@ -834,16 +865,7 @@
       if((c.cover === "BKN" || c.cover === "OVC") && (ceiling === null || c.base < ceiling)) ceiling = c.base;
     });
     out.ceiling = ceiling;
-    function catFromVis(v){
-      if(v === undefined || v === null) return "VFR";
-      if(v < 1) return "LIFR"; if(v < 3) return "IFR"; if(v < 5) return "MVFR"; return "VFR";
-    }
-    function catFromCeil(c){
-      if(c === null) return "VFR";
-      if(c < 500) return "LIFR"; if(c < 1000) return "IFR"; if(c < 3000) return "MVFR"; return "VFR";
-    }
-    var vc = catFromVis(out.visSm), cc = catFromCeil(out.ceiling);
-    out.category = CATEGORY_RANK[vc] > CATEGORY_RANK[cc] ? vc : cc;
+    out.category = flightCategory(out.visSm, out.ceiling);
     return out;
   }
 
@@ -954,15 +976,12 @@
   function parseForecastTokens(tokens){
     var out = {clouds:[], wx:[]};
     tokens.forEach(function(tok){
-      var wm = tok.match(/^(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT$/);
-      if(wm){ out.windDir = wm[1]; out.windSpd = parseInt(wm[2],10); out.windGust = wm[4] ? parseInt(wm[4],10) : null; return; }
-      if(tok === "P6SM"){ out.visSm = 6; out.visPlus = true; return; }
-      var vm = tok.match(/^(\d{1,2})SM$/);
-      if(vm){ out.visSm = parseInt(vm[1],10); return; }
-      var vf = tok.match(/^(\d)\/(\d)SM$/);
-      if(vf){ out.visSm = parseInt(vf[1],10) / parseInt(vf[2],10); return; }
-      var cm = tok.match(/^(FEW|SCT|BKN|OVC)(\d{3})$/);
-      if(cm){ out.clouds.push({cover:cm[1], base:parseInt(cm[2],10) * 100}); return; }
+      var wm = parseWindToken(tok);
+      if(wm){ out.windDir = wm.dir; out.windSpd = wm.spd; out.windGust = wm.gust; return; }
+      var vis = parseVisToken(tok);
+      if(vis){ out.visSm = vis.sm; out.visPlus = !!vis.plus; return; }
+      var cm = parseCloudToken(tok);
+      if(cm){ out.clouds.push(cm); return; }
       if(/^(SKC|CLR|NSC)$/.test(tok)){ out.skyClear = true; return; }
       if(/^WS\d{3}\/\d{5}KT$/.test(tok)) return;
       var wx = decodeWxToken(tok);
@@ -1051,97 +1070,154 @@
     });
   }
 
-  function renderWeather(icao, metarRaw, tafRaw){
-    var body = document.getElementById("wxBody");
-    var m = parseMetar(metarRaw);
-    if(!m){
-      body.innerHTML = '<div class="hint">No current METAR available for '+icao+'.</div>';
+  // fetch() has no built-in timeout, so a stalled request would otherwise
+  // leave a section stuck on "Loading…" forever.
+  function fetchWithTimeout(url, ms){
+    var ctrl = new AbortController();
+    var timer = setTimeout(function(){ ctrl.abort(); }, ms);
+    return fetch(url, {cache:"no-store", signal:ctrl.signal}).finally(function(){ clearTimeout(timer); });
+  }
+
+  var wxReqSeq = 0; // guards a slow, superseded request from overwriting a newer one
+
+  function wxSkeletonHtml(icao){
+    return '<div class="wx-head" style="margin-bottom:6px;">'
+      + '<div class="wx-airport">'+icao+'</div>'
+      + '<span class="cat-chip" id="catChip">···</span>'
+      + '</div>'
+      + '<div class="wx-grid" id="wxGrid">'
+      +   wxTile("Wind","…") + wxTile("Visibility","…") + wxTile("Sky","…")
+      +   wxTile("Temp / DP","…") + wxTile("Altimeter","…")
+      + '</div>'
+      + '<div class="wx-sub-label">Raw METAR</div>'
+      + '<div class="raw-box" id="metarBox">Loading…</div>'
+      + '<div class="wx-sub-label">TAF <button class="toggle-btn" id="tafToggle" type="button">Show raw</button></div>'
+      + '<div id="tafDecoded" class="hint">Loading…</div>'
+      + '<div id="tafRaw" class="raw-box" style="display:none;"></div>'
+      + '<div id="atisBlock"><div class="wx-sub-label">ATIS</div><div class="hint">Loading ATIS…</div></div>'
+      + '<button class="btn wx-refresh" id="wxRefreshBtn">Refresh weather &amp; ATIS</button>';
+  }
+
+  function renderMetar(m){
+    var chip = document.getElementById("catChip");
+    var grid = document.getElementById("wxGrid");
+    var box = document.getElementById("metarBox");
+    if(chip){ chip.textContent = m.category; chip.className = "cat-chip " + m.category.toLowerCase(); }
+    if(grid){
+      grid.innerHTML = wxTile("Wind", fmtWind(m)) + wxTile("Visibility", fmtVis(m)) + wxTile("Sky", fmtSky(m))
+        + wxTile("Temp / DP", fmtTemp(m)) + wxTile("Altimeter", fmtAltim(m));
+    }
+    if(box) box.textContent = m.raw;
+  }
+
+  function renderMetarError(icao, retry){
+    var chip = document.getElementById("catChip");
+    var box = document.getElementById("metarBox");
+    if(chip) chip.textContent = "N/A";
+    if(box){
+      box.innerHTML = "Couldn't reach the weather service.";
+      var btn = document.createElement("button");
+      btn.className = "toggle-btn"; btn.type = "button"; btn.textContent = "Retry"; btn.style.marginLeft = "8px";
+      btn.addEventListener("click", retry);
+      box.appendChild(btn);
+    }
+  }
+
+  function renderTaf(tafRaw, icao){
+    var dec = document.getElementById("tafDecoded");
+    var raw = document.getElementById("tafRaw");
+    if(!dec || !raw) return;
+    if(!tafRaw){
+      dec.innerHTML = '<div class="hint">No TAF available for '+icao+'.</div>';
+      raw.textContent = "";
       return;
     }
-    var html = '';
-    html += '<div class="wx-head" style="margin-bottom:6px;">';
-    html += '<div class="wx-airport">'+icao+'</div>';
-    html += '<span class="cat-chip '+m.category.toLowerCase()+'">'+m.category+'</span>';
-    html += '</div>';
-    html += '<div class="wx-grid">';
-    html += wxTile("Wind", fmtWind(m));
-    html += wxTile("Visibility", fmtVis(m));
-    html += wxTile("Sky", fmtSky(m));
-    html += wxTile("Temp / DP", fmtTemp(m));
-    html += wxTile("Altimeter", fmtAltim(m));
-    html += '</div>';
-    html += '<div class="wx-sub-label">Raw METAR</div>';
-    html += '<div class="raw-box">'+escapeHtml(m.raw)+'</div>';
-    html += '<div class="wx-sub-label">TAF <button class="toggle-btn" id="tafToggle" type="button">Show raw</button></div>';
-    if(tafRaw){
-      html += '<div id="tafDecoded">'+decodeTafHtml(tafRaw)+'</div>';
-      html += '<div id="tafRaw" class="raw-box" style="display:none;">'+escapeHtml(tafRaw)+'</div>';
-    } else {
-      html += '<div id="tafDecoded" class="hint">No TAF available for '+icao+'.</div>';
-      html += '<div id="tafRaw" class="raw-box" style="display:none;"></div>';
-    }
-    html += '<div id="atisBlock"></div>';
-    html += '<button class="btn wx-refresh" id="wxRefreshBtn">Refresh weather &amp; ATIS</button>';
-    body.innerHTML = html;
-    document.getElementById("wxRefreshBtn").addEventListener("click", function(){ fetchWeather(icao); });
-    wireToggle("tafToggle", "tafDecoded", "tafRaw");
-    var updated = document.getElementById("wxUpdated");
-    if(updated) updated.textContent = "Updated " + clockZ();
-    fetchAtis(icao);
+    dec.innerHTML = decodeTafHtml(tafRaw);
+    raw.textContent = tafRaw;
   }
 
-  function fetchWeather(icao){
-    var body = document.getElementById("wxBody");
-    body.innerHTML = '<div class="hint">Loading weather for '+icao+'…</div>';
-    var metarUrl = "https://aviationweather.gov/api/data/metar?ids=" + encodeURIComponent(icao) + "&format=raw";
-    var tafUrl = "https://aviationweather.gov/api/data/taf?ids=" + encodeURIComponent(icao) + "&format=raw";
-    Promise.all([
-      fetch(metarUrl, {cache:"no-store"}).then(function(r){ return r.ok ? r.text() : ""; }).catch(function(){ return null; }),
-      fetch(tafUrl, {cache:"no-store"}).then(function(r){ return r.ok ? r.text() : ""; }).catch(function(){ return ""; })
-    ]).then(function(res){
-      if(res[0] === null){
-        body.innerHTML = '<div class="hint">Couldn\'t reach the weather service right now.</div><button class="btn wx-refresh" id="wxRetryBtn">Retry</button>';
-        var retry = document.getElementById("wxRetryBtn");
-        if(retry) retry.addEventListener("click", function(){ fetchWeather(icao); });
-        return;
-      }
-      var metarRaw = (res[0] || "").trim().split("\n")[0];
-      var tafRaw = (res[1] || "").trim();
-      if(!metarRaw){
-        body.innerHTML = '<div class="hint">No current METAR reported for '+icao+'.</div>';
-        return;
-      }
-      renderWeather(icao, metarRaw, tafRaw);
+  function renderAtis(icao, entries){
+    var decodedHtml = "", rawText = "";
+    entries.forEach(function(entry){
+      var text = entry.datis || entry.text || entry.atis_text || JSON.stringify(entry);
+      var code = entry.code || entry.letter || "";
+      var type = entry.type ? (" · " + String(entry.type).toUpperCase()) : "";
+      decodedHtml += '<div class="hint" style="margin-top:8px;">Info '+escapeHtml(code)+type+'</div>';
+      decodedHtml += '<div class="raw-box atis">'+escapeHtml(decodeAtisText(text))+'</div>';
+      rawText += (rawText ? "\n\n" : "") + "INFO " + code + type + "\n" + text;
     });
-  }
-
-  function fetchAtis(icao){
     var block = document.getElementById("atisBlock");
     if(!block) return;
-    block.innerHTML = '<div class="wx-sub-label">ATIS</div><div class="hint">Loading ATIS…</div>';
-    fetch("https://datis.clowd.io/api/" + encodeURIComponent(icao), {cache:"no-store"})
-      .then(function(r){ if(!r.ok) throw new Error("no atis"); return r.json(); })
-      .then(function(data){
-        var arr = (Array.isArray(data) ? data : [data]).filter(function(x){ return x; });
-        if(arr.length === 0) throw new Error("empty");
-        var decodedHtml = "", rawText = "";
-        arr.forEach(function(entry){
-          var text = entry.datis || entry.text || entry.atis_text || JSON.stringify(entry);
-          var code = entry.code || entry.letter || "";
-          var type = entry.type ? (" · " + String(entry.type).toUpperCase()) : "";
-          decodedHtml += '<div class="hint" style="margin-top:8px;">Info '+escapeHtml(code)+type+'</div>';
-          decodedHtml += '<div class="raw-box atis">'+escapeHtml(decodeAtisText(text))+'</div>';
-          rawText += (rawText ? "\n\n" : "") + "INFO " + code + type + "\n" + text;
-        });
-        var html = '<div class="wx-sub-label">ATIS <button class="toggle-btn" id="atisToggle" type="button">Show raw</button></div>';
-        html += '<div id="atisDecoded">'+decodedHtml+'</div>';
-        html += '<div id="atisRaw" class="raw-box atis" style="display:none;">'+escapeHtml(rawText)+'</div>';
-        block.innerHTML = html;
-        wireToggle("atisToggle", "atisDecoded", "atisRaw");
+    block.innerHTML = '<div class="wx-sub-label">ATIS <button class="toggle-btn" id="atisToggle" type="button">Show raw</button></div>'
+      + '<div id="atisDecoded">'+decodedHtml+'</div>'
+      + '<div id="atisRaw" class="raw-box atis" style="display:none;">'+escapeHtml(rawText)+'</div>';
+    wireToggle("atisToggle", "atisDecoded", "atisRaw");
+  }
+
+  function renderAtisUnavailable(icao){
+    var block = document.getElementById("atisBlock");
+    if(!block) return;
+    block.innerHTML = '<div class="wx-sub-label">ATIS</div><div class="hint">No digital ATIS available for '+icao+' (smaller or non-towered airports often don\'t have one), or the lookup service is unreachable.</div>';
+  }
+
+  function fetchMetar(icao, mySeq){
+    var url = "https://aviationweather.gov/api/data/metar?ids=" + encodeURIComponent(icao) + "&format=raw";
+    fetchWithTimeout(url, 10000)
+      .then(function(r){ return r.ok ? r.text() : Promise.reject(new Error("bad status")); })
+      .then(function(text){
+        if(mySeq !== wxReqSeq) return;
+        var raw = text.trim().split("\n")[0];
+        if(!raw) throw new Error("no metar");
+        var m = parseMetar(raw);
+        renderMetar(m);
+        var updated = document.getElementById("wxUpdated");
+        if(updated) updated.textContent = "Updated " + clockZ();
       })
       .catch(function(){
-        block.innerHTML = '<div class="wx-sub-label">ATIS</div><div class="hint">No digital ATIS available for '+icao+' (smaller or non-towered airports often don\'t have one), or the lookup service is unreachable.</div>';
+        if(mySeq !== wxReqSeq) return;
+        renderMetarError(icao, function(){ fetchMetar(icao, mySeq); });
       });
+  }
+
+  function fetchTaf(icao, mySeq){
+    var url = "https://aviationweather.gov/api/data/taf?ids=" + encodeURIComponent(icao) + "&format=raw";
+    fetchWithTimeout(url, 10000)
+      .then(function(r){ return r.ok ? r.text() : ""; })
+      .then(function(text){ if(mySeq === wxReqSeq) renderTaf(text.trim(), icao); })
+      .catch(function(){ if(mySeq === wxReqSeq) renderTaf("", icao); });
+  }
+
+  function fetchAtis(icao, mySeq){
+    var url = "https://datis.clowd.io/api/" + encodeURIComponent(icao);
+    fetchWithTimeout(url, 10000)
+      .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error("no atis")); })
+      .then(function(data){
+        if(mySeq !== wxReqSeq) return;
+        var arr = (Array.isArray(data) ? data : [data]).filter(function(x){ return x; });
+        if(arr.length === 0) throw new Error("empty");
+        renderAtis(icao, arr);
+      })
+      .catch(function(){ if(mySeq === wxReqSeq) renderAtisUnavailable(icao); });
+  }
+
+  // Kicks off METAR, TAF, and ATIS at the same time and lets each section
+  // render independently as soon as it resolves, rather than gating
+  // everything behind one combined round-trip.
+  function fetchWeather(icao, force){
+    icao = icao.toUpperCase();
+    var body = document.getElementById("wxBody");
+    var mySeq = ++wxReqSeq;
+    if(force || body.dataset.icao !== icao){
+      body.dataset.icao = icao;
+      body.innerHTML = wxSkeletonHtml(icao);
+      wireToggle("tafToggle", "tafDecoded", "tafRaw");
+      document.getElementById("wxRefreshBtn").addEventListener("click", function(){ fetchWeather(icao, true); });
+    }
+    var updated = document.getElementById("wxUpdated");
+    if(updated) updated.textContent = "Updating…";
+    fetchMetar(icao, mySeq);
+    fetchTaf(icao, mySeq);
+    fetchAtis(icao, mySeq);
   }
 
   function setActiveAirport(icao){
@@ -1170,6 +1246,7 @@
   // ---- Init -----------------------------------------------------------
   renderPresets();
   renderFavs();
+  setActiveAirport("KSTL"); // default weather/ATIS view on load; audio never autoplays
 })();
 </script>
 </body>
