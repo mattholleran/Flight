@@ -834,6 +834,131 @@
     return CATEGORY_RANK[vc] > CATEGORY_RANK[cc] ? vc : cc;
   }
 
+  // ---- aviationweather.gov Data API (format=json) helpers ----------------
+  // https://aviationweather.gov/data/api/ — structured fields instead of us
+  // regex-parsing raw text ourselves. Every field here is read defensively
+  // (multiple candidate keys, numeric guards) since this page can't verify
+  // the live response shape from this sandbox; parseMetar()'s raw-text
+  // parsing above stays in place as a fallback for both METAR and, via
+  // rawTAF, for TAF, in case a response is missing the fields we expect.
+  function padDir(d){
+    if(d === undefined || d === null || d === "" || d === "VRB") return "VRB";
+    var n = String(d);
+    while(n.length < 3) n = "0" + n;
+    return n;
+  }
+
+  function parseVisibString(v){
+    if(v === undefined || v === null || v === "") return {sm:undefined, plus:false};
+    v = String(v).trim();
+    var plus = v.indexOf("+") !== -1;
+    v = v.replace("+", "");
+    if(v.indexOf(" ") !== -1){
+      var parts = v.split(" "), frac = parts[1].split("/");
+      return {sm: parseFloat(parts[0]) + (parseInt(frac[0],10) / parseInt(frac[1],10)), plus:plus};
+    }
+    if(v.indexOf("/") !== -1){
+      var f = v.split("/");
+      return {sm: parseInt(f[0],10) / parseInt(f[1],10), plus:plus};
+    }
+    var n = parseFloat(v);
+    return {sm: isNaN(n) ? undefined : n, plus:plus};
+  }
+
+  // The API's "altim" has been observed both as inHg (~28-31) and hPa
+  // (~950-1050) depending on station/build; this guards against either.
+  function altimToInHg(raw){
+    if(raw === undefined || raw === null || raw === "") return undefined;
+    var v = parseFloat(raw);
+    if(isNaN(v)) return undefined;
+    return v > 100 ? v * 0.0295300 : v;
+  }
+
+  function toDate(t){
+    if(t === undefined || t === null || t === "") return null;
+    var d = (typeof t === "number") ? new Date(t * 1000) : new Date(t);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function ordinal(n){
+    if(n >= 11 && n <= 13) return "th";
+    switch(n % 10){ case 1: return "st"; case 2: return "nd"; case 3: return "rd"; default: return "th"; }
+  }
+  function fmtUtc(d){
+    if(!d) return "";
+    function pad(n){ return (n < 10 ? "0" : "") + n; }
+    var day = d.getUTCDate();
+    return day + ordinal(day) + " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + "Z";
+  }
+
+  function cloudsFromJson(clouds){
+    return (Array.isArray(clouds) ? clouds : [])
+      .map(function(c){ return {cover: c.cover || c.skyCover || "", base: (c.base !== undefined && c.base !== null) ? c.base : null}; })
+      .filter(function(c){ return c.cover && c.cover !== "CLR" && c.cover !== "SKC" && c.cover !== "NSC"; });
+  }
+
+  function metarFromJson(o){
+    var raw = o.rawOb || o.raw_text || o.rawText || "";
+    var hasStructured = (o.wdir !== undefined && o.wdir !== null) || (o.visib !== undefined && o.visib !== null)
+      || (o.altim !== undefined && o.altim !== null) || Array.isArray(o.clouds);
+    if(!hasStructured) return raw ? parseMetar(raw) : null; // fall back to the raw-text decoder entirely
+
+    var clouds = cloudsFromJson(o.clouds);
+    var vis = parseVisibString(o.visib);
+    var ceiling = null;
+    clouds.forEach(function(c){
+      if((c.cover === "BKN" || c.cover === "OVC") && c.base !== null && (ceiling === null || c.base < ceiling)) ceiling = c.base;
+    });
+    var category = (o.fltCat && CATEGORY_RANK.hasOwnProperty(o.fltCat)) ? o.fltCat : flightCategory(vis.sm, ceiling);
+    return {
+      raw: raw,
+      windDir: (o.wdir === undefined || o.wdir === null || o.wdir === "") ? undefined : padDir(o.wdir),
+      windSpd: (o.wspd !== undefined && o.wspd !== null) ? o.wspd : undefined,
+      windGust: (o.wgst !== undefined && o.wgst !== null && o.wgst !== 0) ? o.wgst : null,
+      windUnit: "KT",
+      clouds: clouds,
+      ceiling: ceiling,
+      visSm: vis.sm,
+      visPlus: vis.plus,
+      temp: (o.temp !== undefined && o.temp !== null) ? Math.round(o.temp) : undefined,
+      dewp: (o.dewp !== undefined && o.dewp !== null) ? Math.round(o.dewp) : undefined,
+      altimInHg: altimToInHg(o.altim),
+      category: category
+    };
+  }
+
+  function tafForecastFromJson(period){
+    var out = {clouds: cloudsFromJson(period.clouds), wx:[]};
+    if(period.wdir !== undefined && period.wdir !== null && period.wdir !== ""){
+      out.windDir = padDir(period.wdir);
+      out.windSpd = period.wspd;
+      out.windGust = (period.wgst && period.wgst !== 0) ? period.wgst : null;
+    }
+    var vis = parseVisibString(period.visib);
+    if(vis.sm !== undefined){ out.visSm = vis.sm; out.visPlus = vis.plus; }
+    if(period.wxString){
+      out.wx = String(period.wxString).split(/\s+/).map(decodeWxToken).filter(Boolean);
+    }
+    var rawClouds = Array.isArray(period.clouds) ? period.clouds : [];
+    out.skyClear = rawClouds.length > 0 && out.clouds.length === 0
+      && rawClouds.some(function(c){ return ["CLR","SKC","NSC"].indexOf(c.cover) !== -1; });
+    return out;
+  }
+
+  function tafPeriodLabel(period, isBase){
+    var from = toDate(period.timeFrom), to = toDate(period.timeTo);
+    if(isBase) return "Initial" + (from && to ? " (valid " + fmtUtc(from) + "–" + fmtUtc(to) + ")" : "");
+    var change = String(period.fcstChange || "").toUpperCase();
+    var range = (from && to) ? (" " + fmtUtc(from) + "–" + fmtUtc(to)) : (from ? " " + fmtUtc(from) : "");
+    if(change === "FM") return "From" + (from ? " " + fmtUtc(from) : "");
+    if(change === "BECMG") return "Becoming" + range;
+    if(change === "TEMPO") return "Temporarily" + range;
+    if(change.indexOf("PROB") === 0){
+      var pct = period.probability || change.replace("PROB","");
+      return pct + "% chance" + range;
+    }
+    return (change || "Change") + range;
+  }
+
   function parseMetar(raw){
     raw = (raw || "").trim();
     if(!raw) return null;
@@ -851,9 +976,9 @@
         return;
       }
       var am = tok.match(/^A(\d{4})$/);
-      if(am){ out.altimIn = parseInt(am[1],10) / 100; return; }
+      if(am){ out.altimInHg = parseInt(am[1],10) / 100; return; }
       var qm = tok.match(/^Q(\d{4})$/);
-      if(qm){ out.altimHpa = parseInt(qm[1],10); return; }
+      if(qm){ out.altimInHg = parseInt(qm[1],10) * 0.0295300; return; }
     });
     // Visibility can be split across two tokens ("1 1/2SM"), which the
     // shared single-token parseVisToken can't express, so match on the
@@ -887,11 +1012,14 @@
     if(m.windGust) s += " G" + m.windGust;
     return s;
   }
-  function fmtVis(m){
-    if(m.visSm === undefined) return "—";
-    var v = Math.round(m.visSm * 100) / 100;
-    return (v % 1 === 0 ? v : v.toFixed(2).replace(/0+$/,"").replace(/\.$/,"")) + " SM";
+  // Shared by both the METAR tiles and the TAF period summaries.
+  function fmtVisValue(sm, plus){
+    if(sm === undefined || sm === null) return "—";
+    var v = Math.round(sm * 100) / 100;
+    var vStr = (v % 1 === 0 ? String(v) : v.toFixed(2).replace(/0+$/,"").replace(/\.$/,""));
+    return vStr + (plus ? "+" : "") + " SM";
   }
+  function fmtVis(m){ return fmtVisValue(m.visSm, m.visPlus); }
   function fmtSky(m){
     if(!m.clouds.length) return "Clear";
     return m.clouds.map(function(c){ return c.cover + " " + c.base + "ft"; }).join(", ");
@@ -902,9 +1030,7 @@
     return m.temp + "°C / " + f + "°F (DP " + m.dewp + "°C)";
   }
   function fmtAltim(m){
-    if(m.altimIn !== undefined) return m.altimIn.toFixed(2) + " inHg";
-    if(m.altimHpa !== undefined) return m.altimHpa + " hPa";
-    return "—";
+    return (m.altimInHg !== undefined && m.altimInHg !== null) ? m.altimInHg.toFixed(2) + " inHg" : "—";
   }
   function wxTile(label, value){
     return '<div class="wx-tile"><div class="wx-label">'+label+'</div><div class="wx-value">'+escapeHtml(value)+'</div></div>';
@@ -1008,7 +1134,7 @@
       if(f.windGust) w += " gusting " + f.windGust + "kt";
       parts.push("Wind " + w);
     }
-    if(f.visSm !== undefined) parts.push("Visibility " + (f.visPlus ? "6+ " : f.visSm + " ") + "SM");
+    if(f.visSm !== undefined) parts.push("Visibility " + fmtVisValue(f.visSm, f.visPlus));
     if(f.skyClear) parts.push("Sky clear");
     else if(f.clouds.length) parts.push("Sky " + f.clouds.map(function(c){ return c.cover + " " + c.base + "ft"; }).join(", "));
     if(f.wx.length) parts.push(f.wx.join(", "));
@@ -1057,7 +1183,7 @@
     return groups;
   }
 
-  function decodeTafHtml(tafRaw){
+  function decodeTafHtmlFromRaw(tafRaw){
     if(!tafRaw) return '<div class="hint">No TAF available.</div>';
     var groups;
     try{ groups = splitTafGroups(tafRaw); }
@@ -1066,6 +1192,25 @@
       var f = parseForecastTokens(g.tokens);
       return '<div class="taf-period"><div class="taf-label">'+escapeHtml(g.label)+'</div><div class="taf-detail">'+escapeHtml(fmtForecast(f))+'</div></div>';
     }).join("");
+  }
+
+  // Primary path: decode the API's structured fcsts[] (proper UTC
+  // timestamps, pre-split wind/vis/cloud/weather fields — no text regex
+  // needed). Falls back to the raw-text decoder above if the JSON doesn't
+  // have a usable fcsts array, using the same object's rawTAF field.
+  function decodeTafHtml(tafObj){
+    var rawTaf = tafObj && (tafObj.rawTAF || tafObj.raw_text || tafObj.rawText) || "";
+    if(tafObj && Array.isArray(tafObj.fcsts) && tafObj.fcsts.length){
+      try{
+        var html = tafObj.fcsts.map(function(period, i){
+          var label = tafPeriodLabel(period, i === 0);
+          var detail = fmtForecast(tafForecastFromJson(period));
+          return '<div class="taf-period"><div class="taf-label">'+escapeHtml(label)+'</div><div class="taf-detail">'+escapeHtml(detail)+'</div></div>';
+        }).join("");
+        if(html) return html;
+      } catch(e){ /* fall through to the raw-text decoder */ }
+    }
+    return decodeTafHtmlFromRaw(rawTaf);
   }
 
   function wireToggle(toggleId, decodedId, rawId){
@@ -1134,17 +1279,18 @@
     }
   }
 
-  function renderTaf(tafRaw, icao){
+  function renderTaf(tafObj, icao){
     var dec = document.getElementById("tafDecoded");
     var raw = document.getElementById("tafRaw");
     if(!dec || !raw) return;
-    if(!tafRaw){
+    var rawTaf = tafObj && (tafObj.rawTAF || tafObj.raw_text || tafObj.rawText) || "";
+    if(!tafObj || !rawTaf){
       dec.innerHTML = '<div class="hint">No TAF available for '+icao+'.</div>';
       raw.textContent = "";
       return;
     }
-    dec.innerHTML = decodeTafHtml(tafRaw);
-    raw.textContent = tafRaw;
+    dec.innerHTML = decodeTafHtml(tafObj);
+    raw.textContent = rawTaf;
   }
 
   function renderAtis(icao, entries){
@@ -1171,23 +1317,40 @@
     block.innerHTML = '<div class="wx-sub-label">ATIS</div><div class="hint">No digital ATIS available for '+icao+' (smaller or non-towered airports often don\'t have one), or the lookup service is unreachable.</div>';
   }
 
+  // Parses the Data API's array-of-objects JSON shape (format=json), used
+  // for both /metar and /taf — response is `[{...}]` per matched station,
+  // or `[]` when there's no current report.
+  function parseApiJsonArray(text){
+    if(!text) return null;
+    try{
+      var data = JSON.parse(text);
+      var obj = Array.isArray(data) ? data[0] : data;
+      return obj || null;
+    } catch(e){ return null; }
+  }
+
   function fetchMetar(icao, mySeq){
-    var target = "https://aviationweather.gov/api/data/metar?ids=" + encodeURIComponent(icao) + "&format=raw";
+    var target = "https://aviationweather.gov/api/data/metar?ids=" + encodeURIComponent(icao) + "&format=json";
     fetchViaProxy(target, 8000, function(text){
       if(mySeq !== wxReqSeq) return;
-      var raw = text === null ? "" : text.trim().split("\n")[0];
-      if(!raw){ renderMetarError(icao, function(){ fetchMetar(icao, mySeq); }); return; }
-      renderMetar(parseMetar(raw));
+      var obj = parseApiJsonArray(text);
+      if(!obj || !(obj.rawOb || obj.raw_text || obj.rawText)){
+        renderMetarError(icao, function(){ fetchMetar(icao, mySeq); });
+        return;
+      }
+      var m = metarFromJson(obj);
+      if(!m){ renderMetarError(icao, function(){ fetchMetar(icao, mySeq); }); return; }
+      renderMetar(m);
       var updated = document.getElementById("wxUpdated");
       if(updated) updated.textContent = "Updated " + clockZ();
-    }, function(text){ return !text || !text.trim(); });
+    }, function(text){ return !text || !text.trim() || text.trim() === "[]"; });
   }
 
   function fetchTaf(icao, mySeq){
-    var target = "https://aviationweather.gov/api/data/taf?ids=" + encodeURIComponent(icao) + "&format=raw";
+    var target = "https://aviationweather.gov/api/data/taf?ids=" + encodeURIComponent(icao) + "&format=json";
     fetchViaProxy(target, 8000, function(text){
       if(mySeq !== wxReqSeq) return;
-      renderTaf(text === null ? "" : text.trim(), icao);
+      renderTaf(parseApiJsonArray(text), icao);
     });
   }
 
