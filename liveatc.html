@@ -615,13 +615,19 @@
   }
 
   function selectAirport(a){
-    // Try the bare ICAO as the default mount guess; user can correct via Advanced if wrong.
-    var guess = a.icao.toLowerCase();
-    mountInput.value = guess;
-    updateLookupLink(a.icao);
-    play(guess, a.icao + " (auto)", a.icao);
     searchInput.value = a.icao;
     renderResults([], "");
+    updateLookupLink(a.icao);
+    mountInput.value = a.icao.toLowerCase();
+    setActiveAirport(a.icao); // weather/ATIS load immediately, independent of feed lookup
+    // Don't guess-and-play a bare ICAO mount here — that only happens to work
+    // for small single-feed airports. Busier fields (e.g. KDEN) split into
+    // separate named feeds, so a bare guess just plays nothing and throws a
+    // "couldn't load" error. Verify against LiveATC.net first instead, same
+    // as the manual "search live" flow, and let the user pick a real feed.
+    ensureLiveArea();
+    document.getElementById("liveStatus").textContent = "Looking up live feeds for " + a.icao + " (" + a.name + ")...";
+    runLiveSearch(a.icao);
   }
 
   function updateLookupLink(icao){
@@ -686,12 +692,20 @@
     return /^[a-z0-9]{3,4}$/i.test(q.trim());
   }
 
+  // Builds just the status/results skeleton (used when a selection already
+  // implies "go find its feeds now"); renderLiveSearchButton below adds the
+  // explicit button on top of the same skeleton for the free-typing case.
+  function ensureLiveArea(){
+    document.getElementById("liveSearchArea").innerHTML =
+      '<div class="hint" id="liveStatus"></div><div class="results" id="liveResults"></div>';
+  }
+
   function renderLiveSearchButton(query){
     var area = document.getElementById("liveSearchArea");
     if(!isIcaoLike(query)){ area.innerHTML = ""; return; }
     var code = query.trim().toUpperCase();
     area.innerHTML =
-      '<button class="btn" id="liveSearchBtn" style="width:100%;margin-top:8px;">Search LiveATC.net live for '+code+'</button>'+
+      '<button class="btn" id="liveSearchBtn" type="button" style="width:100%;margin-top:8px;">Search LiveATC.net live for '+code+'</button>'+
       '<div class="hint" id="liveStatus"></div>'+
       '<div class="results" id="liveResults"></div>';
     document.getElementById("liveSearchBtn").addEventListener("click", function(){
