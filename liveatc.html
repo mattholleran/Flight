@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>LiveATC Player</title>
+<style>
+  :root{
+    --bg-1:#060b14;
+    --bg-2:#0c1626;
+    --panel:#101d30;
+    --panel-2:#152742;
+    --line:#213554;
+    --text:#eaf2ff;
+    --muted:#8ea3c4;
+    --accent:#33d1c0;
+    --accent-2:#4d8dff;
+    --warn:#ffb454;
+    --live:#ff5470;
+    --radius:18px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    color:var(--text);
+    background:
+      radial-gradient(1200px 700px at 15% -10%, #14304f66, transparent 60%),
+      radial-gradient(900px 600px at 110% 10%, #0f3d3a66, transparent 55%),
+      linear-gradient(160deg,var(--bg-1),var(--bg-2) 60%,#050a12);
+    min-height:100%;
+    padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(30px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+    overflow-x:hidden;
+  }
+  .wrap{max-width:920px;margin:0 auto;}
+
+  header{display:flex;align-items:center;gap:14px;margin-bottom:22px;}
+  .logo{
+    width:46px;height:46px;border-radius:13px;flex:none;
+    background:linear-gradient(145deg,var(--accent),var(--accent-2));
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 8px 24px -6px #33d1c066;
+  }
+  .logo svg{width:26px;height:26px;}
+  h1{font-size:22px;margin:0;letter-spacing:.2px;}
+  header p{margin:2px 0 0;color:var(--muted);font-size:13px;}
+
+  .card{
+    background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:18px;
+    margin-bottom:16px;
+    box-shadow:0 12px 30px -18px #000c;
+  }
+  .card h2{
+    font-size:12px;text-transform:uppercase;letter-spacing:1.2px;
+    color:var(--muted);margin:0 0 12px;font-weight:700;
+  }
+
+  /* search */
+  .search-row{display:flex;gap:10px;}
+  .search-box{
+    flex:1;position:relative;
+  }
+  .search-box input{
+    width:100%;
+    padding:14px 16px 14px 42px;
+    border-radius:14px;
+    border:1px solid var(--line);
+    background:#0a1424;
+    color:var(--text);
+    font-size:16px;
+    outline:none;
+  }
+  .search-box input:focus{border-color:var(--accent);}
+  .search-box svg{
+    position:absolute;left:14px;top:50%;transform:translateY(-50%);
+    width:18px;height:18px;color:var(--muted);
+  }
+  .results{margin-top:10px;display:flex;flex-direction:column;gap:8px;}
+  .result-item{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:12px 14px;border-radius:12px;background:#0a1424;
+    border:1px solid var(--line);cursor:pointer;
+  }
+  .result-item:active{background:#0e1c33;}
+  .result-item .ri-name{font-size:14px;}
+  .result-item .ri-code{font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.5px;}
+  .result-item .ri-sub{font-size:12px;color:var(--muted);}
+  .hint{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5;}
+  .hint a{color:var(--accent-2);}
+
+  /* presets */
+  .presets{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media (max-width:560px){.presets{grid-template-columns:1fr;}}
+  .preset{
+    border:1px solid var(--line);border-radius:16px;padding:14px;background:#0a1424;
+  }
+  .preset-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+  .preset-title{font-size:16px;font-weight:700;}
+  .preset-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+  .badge{
+    font-size:10px;font-weight:700;letter-spacing:.5px;padding:4px 8px;border-radius:20px;
+    background:#1c3a2f;color:var(--accent);border:1px solid #2a5747;
+  }
+  .badge.warn{background:#3a2f1c;color:var(--warn);border-color:#57472a;}
+  .feed-list{display:flex;flex-wrap:wrap;gap:8px;}
+  .feed-btn{
+    border:1px solid var(--line);background:#101f36;color:var(--text);
+    padding:9px 13px;border-radius:11px;font-size:13px;font-weight:600;
+    display:flex;align-items:center;gap:6px;
+  }
+  .feed-btn:active{background:#16304f;}
+  .feed-btn.active{background:linear-gradient(145deg,var(--accent),var(--accent-2));color:#04141c;border-color:transparent;}
+
+  /* player */
+  .player{
+    position:sticky;bottom:0;
+    display:flex;flex-direction:column;gap:14px;
+  }
+  .now-row{display:flex;align-items:center;gap:14px;}
+  .dot{
+    width:12px;height:12px;border-radius:50%;background:#3a4d6b;flex:none;
+  }
+  .dot.live{background:var(--live);box-shadow:0 0 0 0 rgba(255,84,112,.6);animation:pulse 1.6s infinite;}
+  .dot.buffering{background:var(--warn);animation:blink 1s infinite;}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(255,84,112,.55);}
+    70%{box-shadow:0 0 0 12px rgba(255,84,112,0);}
+    100%{box-shadow:0 0 0 0 rgba(255,84,112,0);}
+  }
+  @keyframes blink{50%{opacity:.35;}}
+  .now-text{flex:1;min-width:0;}
+  .now-title{font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .now-sub{font-size:12px;color:var(--muted);}
+  .controls{display:flex;align-items:center;gap:14px;}
+  .play-btn{
+    width:60px;height:60px;border-radius:50%;flex:none;
+    background:linear-gradient(145deg,var(--accent),var(--accent-2));
+    border:none;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 10px 24px -8px #33d1c088;
+  }
+  .play-btn svg{width:24px;height:24px;color:#04141c;}
+  .vol{flex:1;display:flex;align-items:center;gap:10px;}
+  .vol svg{width:18px;height:18px;color:var(--muted);flex:none;}
+  input[type=range]{
+    -webkit-appearance:none;width:100%;height:4px;border-radius:4px;
+    background:var(--line);outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:18px;height:18px;border-radius:50%;
+    background:var(--text);cursor:pointer;border:none;
+  }
+
+  /* advanced */
+  details.card summary{cursor:pointer;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px;font-weight:700;list-style:none;}
+  details.card summary::-webkit-details-marker{display:none;}
+  .adv-row{display:flex;gap:10px;margin-top:12px;}
+  .adv-row input{
+    flex:1;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+    background:#0a1424;color:var(--text);font-size:14px;outline:none;
+  }
+  .btn{
+    padding:12px 16px;border-radius:12px;border:1px solid var(--line);
+    background:#101f36;color:var(--text);font-size:13px;font-weight:700;white-space:nowrap;
+  }
+  .btn.primary{background:linear-gradient(145deg,var(--accent),var(--accent-2));color:#04141c;border-color:transparent;}
+  .btn:active{opacity:.8;}
+
+  .favs{display:flex;flex-wrap:wrap;gap:8px;}
+  footer{text-align:center;color:var(--muted);font-size:11px;margin:22px 0 6px;line-height:1.6;}
+  footer a{color:var(--accent-2);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#04141c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v8"/><path d="M12 10l9 5-3 1-6-2-6 2-3-1 9-5z"/><path d="M9 21l3-3 3 3"/></svg>
+    </div>
+    <div>
+      <h1>LiveATC Player</h1>
+      <p>Live air traffic control audio, streamed from liveatc.net</p>
+    </div>
+  </header>
+
+  <div class="card">
+    <h2>Search Airport</h2>
+    <div class="search-row">
+      <div class="search-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="searchInput" type="text" inputmode="search" autocomplete="off" autocapitalize="characters"
+               placeholder="ICAO, IATA, city, or airport name (e.g. KSTL, STL, St. Louis)">
+      </div>
+    </div>
+    <div id="results" class="results"></div>
+    <div class="hint" id="searchHint"></div>
+  </div>
+
+  <div class="card">
+    <h2>Presets</h2>
+    <div class="presets" id="presets"></div>
+  </div>
+
+  <div class="card" id="favCard" style="display:none;">
+    <h2>Saved Feeds</h2>
+    <div class="favs" id="favs"></div>
+  </div>
+
+  <details class="card">
+    <summary>Advanced — play a feed by exact mount ID</summary>
+    <div class="adv-row">
+      <input id="mountInput" type="text" autocapitalize="none" autocorrect="off" placeholder="e.g. kord_twr">
+      <button class="btn primary" id="mountPlayBtn">Play</button>
+    </div>
+    <div class="adv-row">
+      <button class="btn" id="mountSaveBtn">Save as favorite</button>
+    </div>
+    <div class="hint">
+      Not sure of the exact feed name? Open the airport's page on LiveATC.net to find it, then paste the mount ID above.
+      <div id="lookupLink" style="margin-top:6px;"></div>
+    </div>
+  </details>
+
+  <div class="card player">
+    <div class="now-row">
+      <div class="dot" id="statusDot"></div>
+      <div class="now-text">
+        <div class="now-title" id="nowTitle">Nothing playing</div>
+        <div class="now-sub" id="nowSub">Pick a preset or search an airport above</div>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="play-btn" id="playBtn" aria-label="Play">
+        <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+      <div class="vol">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+        <input type="range" id="volume" min="0" max="1" step="0.01" value="0.9">
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Streams are provided by <a href="https://www.liveatc.net" target="_blank" rel="noopener">liveatc.net</a> — for personal, non-commercial listening only.<br>
+    ATC audio may be delayed and is not for operational or navigational use.
+  </footer>
+</div>
+
+<audio id="audio" preload="none"></audio>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---- Data ----------------------------------------------------------
+  // Confirmed live mount IDs (verified against liveatc.net at the time of writing).
+  var PRESETS = [
+    {
+      icao:"KSTL", name:"St. Louis Lambert Intl", city:"St. Louis, MO", verified:true,
+      feeds:[
+        {label:"Twr/Gnd/Del", mount:"kstl2"},
+        {label:"Tower", mount:"kstl2_twr"},
+        {label:"Del/Gnd", mount:"kstl2_del_gnd"},
+        {label:"Approach", mount:"kstl_app"}
+      ]
+    },
+    {
+      icao:"KCPS", name:"St. Louis Downtown (Cahokia/Parks)", city:"Cahokia, IL", verified:false,
+      feeds:[
+        {label:"Twr/Gnd (best guess)", mount:"kcps"}
+      ]
+    }
+  ];
+
+  // Small built-in airport directory for search (not exhaustive — add more any time).
+  var AIRPORTS = [
+    {icao:"KSTL",iata:"STL",name:"St. Louis Lambert Intl",city:"St. Louis, MO"},
+    {icao:"KCPS",iata:"CPS",name:"St. Louis Downtown (Cahokia/Parks)",city:"Cahokia, IL"},
+    {icao:"KORD",iata:"ORD",name:"Chicago O'Hare Intl",city:"Chicago, IL"},
+    {icao:"KMDW",iata:"MDW",name:"Chicago Midway Intl",city:"Chicago, IL"},
+    {icao:"KJFK",iata:"JFK",name:"John F. Kennedy Intl",city:"New York, NY"},
+    {icao:"KLGA",iata:"LGA",name:"LaGuardia",city:"New York, NY"},
+    {icao:"KEWR",iata:"EWR",name:"Newark Liberty Intl",city:"Newark, NJ"},
+    {icao:"KATL",iata:"ATL",name:"Hartsfield-Jackson Atlanta Intl",city:"Atlanta, GA"},
+    {icao:"KDFW",iata:"DFW",name:"Dallas/Fort Worth Intl",city:"Dallas, TX"},
+    {icao:"KIAH",iata:"IAH",name:"George Bush Intercontinental",city:"Houston, TX"},
+    {icao:"KDEN",iata:"DEN",name:"Denver Intl",city:"Denver, CO"},
+    {icao:"KLAX",iata:"LAX",name:"Los Angeles Intl",city:"Los Angeles, CA"},
+    {icao:"KSFO",iata:"SFO",name:"San Francisco Intl",city:"San Francisco, CA"},
+    {icao:"KSEA",iata:"SEA",name:"Seattle-Tacoma Intl",city:"Seattle, WA"},
+    {icao:"KPHX",iata:"PHX",name:"Phoenix Sky Harbor Intl",city:"Phoenix, AZ"},
+    {icao:"KLAS",iata:"LAS",name:"Harry Reid Intl",city:"Las Vegas, NV"},
+    {icao:"KMIA",iata:"MIA",name:"Miami Intl",city:"Miami, FL"},
+    {icao:"KMCO",iata:"MCO",name:"Orlando Intl",city:"Orlando, FL"},
+    {icao:"KBOS",iata:"BOS",name:"Logan Intl",city:"Boston, MA"},
+    {icao:"KPHL",iata:"PHL",name:"Philadelphia Intl",city:"Philadelphia, PA"},
+    {icao:"KDCA",iata:"DCA",name:"Ronald Reagan Washington National",city:"Washington, DC"},
+    {icao:"KIAD",iata:"IAD",name:"Washington Dulles Intl",city:"Washington, DC"},
+    {icao:"KBWI",iata:"BWI",name:"Baltimore/Washington Intl",city:"Baltimore, MD"},
+    {icao:"KDTW",iata:"DTW",name:"Detroit Metro",city:"Detroit, MI"},
+    {icao:"KMSP",iata:"MSP",name:"Minneapolis-St Paul Intl",city:"Minneapolis, MN"},
+    {icao:"KMCI",iata:"MCI",name:"Kansas City Intl",city:"Kansas City, MO"},
+    {icao:"KTUL",iata:"TUL",name:"Tulsa Intl",city:"Tulsa, OK"},
+    {icao:"KOKC",iata:"OKC",name:"Will Rogers World",city:"Oklahoma City, OK"},
+    {icao:"KIND",iata:"IND",name:"Indianapolis Intl",city:"Indianapolis, IN"},
+    {icao:"KCVG",iata:"CVG",name:"Cincinnati/N. Kentucky Intl",city:"Cincinnati, OH"},
+    {icao:"KCLE",iata:"CLE",name:"Cleveland Hopkins Intl",city:"Cleveland, OH"},
+    {icao:"KCMH",iata:"CMH",name:"John Glenn Columbus Intl",city:"Columbus, OH"},
+    {icao:"KPIT",iata:"PIT",name:"Pittsburgh Intl",city:"Pittsburgh, PA"},
+    {icao:"KCLT",iata:"CLT",name:"Charlotte Douglas Intl",city:"Charlotte, NC"},
+    {icao:"KRDU",iata:"RDU",name:"Raleigh-Durham Intl",city:"Raleigh, NC"},
+    {icao:"KBNA",iata:"BNA",name:"Nashville Intl",city:"Nashville, TN"},
+    {icao:"KMEM",iata:"MEM",name:"Memphis Intl",city:"Memphis, TN"},
+    {icao:"KSTP",iata:"STP",name:"St. Paul Downtown",city:"St. Paul, MN"},
+    {icao:"KSDF",iata:"SDF",name:"Louisville Muhammad Ali Intl",city:"Louisville, KY"},
+    {icao:"KSLC",iata:"SLC",name:"Salt Lake City Intl",city:"Salt Lake City, UT"},
+    {icao:"KPDX",iata:"PDX",name:"Portland Intl",city:"Portland, OR"},
+    {icao:"KSAN",iata:"SAN",name:"San Diego Intl",city:"San Diego, CA"},
+    {icao:"KAUS",iata:"AUS",name:"Austin-Bergstrom Intl",city:"Austin, TX"},
+    {icao:"KSAT",iata:"SAT",name:"San Antonio Intl",city:"San Antonio, TX"},
+    {icao:"KSJC",iata:"SJC",name:"San Jose Intl",city:"San Jose, CA"},
+    {icao:"KOAK",iata:"OAK",name:"Oakland Intl",city:"Oakland, CA"}
+  ];
+
+  var STREAM_HOST_HTTPS = "https://d.liveatc.net/";
+  var STREAM_HOST_HTTP  = "http://d.liveatc.net/";
+  var LS_KEY = "liveatc_favorites_v1";
+
+  // ---- Elements --------------------------------------------------------
+  var audio = document.getElementById("audio");
+  var playBtn = document.getElementById("playBtn");
+  var playIcon = document.getElementById("playIcon");
+  var statusDot = document.getElementById("statusDot");
+  var nowTitle = document.getElementById("nowTitle");
+  var nowSub = document.getElementById("nowSub");
+  var volume = document.getElementById("volume");
+  var searchInput = document.getElementById("searchInput");
+  var resultsEl = document.getElementById("results");
+  var searchHint = document.getElementById("searchHint");
+  var presetsEl = document.getElementById("presets");
+  var favCard = document.getElementById("favCard");
+  var favsEl = document.getElementById("favs");
+  var mountInput = document.getElementById("mountInput");
+  var mountPlayBtn = document.getElementById("mountPlayBtn");
+  var mountSaveBtn = document.getElementById("mountSaveBtn");
+  var lookupLink = document.getElementById("lookupLink");
+
+  var ICONS = {
+    play:'<path d="M8 5v14l11-7z"/>',
+    pause:'<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>'
+  };
+
+  var current = null;      // {mount,label,tried}
+  var triedFallback = false;
+
+  // ---- Playback ---------------------------------------------------------
+  function setStatus(state){
+    statusDot.className = "dot" + (state ? " " + state : "");
+  }
+
+  function play(mount, label){
+    if(!mount) return;
+    mount = mount.trim().replace(/^\/+/, "");
+    if(!mount) return;
+    triedFallback = false;
+    current = {mount:mount, label:label || mount};
+    nowTitle.textContent = current.label;
+    nowSub.textContent = mount;
+    setStatus("buffering");
+    audio.src = STREAM_HOST_HTTPS + mount;
+    audio.play().catch(function(){ /* wait for user gesture / error event */ });
+    highlightActiveFeed(mount);
+  }
+
+  audio.addEventListener("waiting", function(){ setStatus("buffering"); });
+  audio.addEventListener("playing", function(){
+    setStatus("live");
+    playIcon.innerHTML = ICONS.pause;
+  });
+  audio.addEventListener("pause", function(){
+    if(!audio.ended) playIcon.innerHTML = ICONS.play;
+  });
+  audio.addEventListener("error", function(){
+    if(current && !triedFallback){
+      // https mount may not be served on this mirror — retry over plain http
+      triedFallback = true;
+      audio.src = STREAM_HOST_HTTP + current.mount;
+      audio.play().catch(function(){});
+    } else {
+      setStatus("");
+      nowSub.textContent = "Couldn't load this feed — the mount ID may be wrong or offline";
+      playIcon.innerHTML = ICONS.play;
+    }
+  });
+
+  playBtn.addEventListener("click", function(){
+    if(!current){
+      if(mountInput.value.trim()) play(mountInput.value, mountInput.value.trim());
+      return;
+    }
+    if(audio.paused) audio.play().catch(function(){});
+    else audio.pause();
+  });
+
+  volume.addEventListener("input", function(){ audio.volume = parseFloat(volume.value); });
+  audio.volume = parseFloat(volume.value);
+
+  // ---- Presets -----------------------------------------------------------
+  function renderPresets(){
+    presetsEl.innerHTML = "";
+    PRESETS.forEach(function(p){
+      var card = document.createElement("div");
+      card.className = "preset";
+      var top = document.createElement("div");
+      top.className = "preset-top";
+      top.innerHTML =
+        '<div><div class="preset-title">'+p.icao+'</div>'+
+        '<div class="preset-sub">'+p.name+' · '+p.city+'</div></div>'+
+        '<span class="badge'+(p.verified ? '' : ' warn')+'">'+(p.verified ? 'verified' : 'unverified')+'</span>';
+      card.appendChild(top);
+
+      var list = document.createElement("div");
+      list.className = "feed-list";
+      p.feeds.forEach(function(f){
+        var btn = document.createElement("button");
+        btn.className = "feed-btn";
+        btn.dataset.mount = f.mount;
+        btn.textContent = f.label;
+        btn.addEventListener("click", function(){
+          play(f.mount, p.icao + " " + f.label);
+        });
+        list.appendChild(btn);
+      });
+      card.appendChild(list);
+
+      if(!p.verified){
+        var note = document.createElement("div");
+        note.className = "hint";
+        note.style.marginTop = "8px";
+        note.innerHTML = 'Feed name unconfirmed — if it doesn\'t play, tap "search" below and use "find exact feed" to look it up.';
+        card.appendChild(note);
+      }
+
+      presetsEl.appendChild(card);
+    });
+  }
+
+  function highlightActiveFeed(mount){
+    document.querySelectorAll(".feed-btn").forEach(function(b){
+      b.classList.toggle("active", b.dataset.mount === mount);
+    });
+  }
+
+  // ---- Search --------------------------------------------------------
+  function normalize(s){ return (s||"").toLowerCase(); }
+
+  function searchAirports(q){
+    q = normalize(q).trim();
+    if(!q) return [];
+    return AIRPORTS.filter(function(a){
+      return normalize(a.icao).indexOf(q) !== -1 ||
+             normalize(a.iata).indexOf(q) !== -1 ||
+             normalize(a.name).indexOf(q) !== -1 ||
+             normalize(a.city).indexOf(q) !== -1;
+    }).slice(0, 8);
+  }
+
+  function renderResults(list, query){
+    resultsEl.innerHTML = "";
+    if(!query){
+      searchHint.innerHTML = "";
+      return;
+    }
+    if(list.length === 0){
+      searchHint.innerHTML = 'No match in the built-in directory. Try the exact ICAO code (e.g. "KLAX"), or use the Advanced section below with a mount ID from LiveATC.net.';
+      return;
+    }
+    searchHint.innerHTML = "";
+    list.forEach(function(a){
+      var row = document.createElement("div");
+      row.className = "result-item";
+      row.innerHTML =
+        '<div><div class="ri-name">'+a.name+'</div><div class="ri-sub">'+a.city+'</div></div>'+
+        '<div class="ri-code">'+a.icao+(a.iata ? " / "+a.iata : "")+'</div>';
+      row.addEventListener("click", function(){
+        selectAirport(a);
+      });
+      resultsEl.appendChild(row);
+    });
+  }
+
+  function selectAirport(a){
+    // Try the bare ICAO as the default mount guess; user can correct via Advanced if wrong.
+    var guess = a.icao.toLowerCase();
+    mountInput.value = guess;
+    updateLookupLink(a.icao);
+    play(guess, a.icao + " (auto)");
+    searchInput.value = a.icao;
+    renderResults([], "");
+  }
+
+  function updateLookupLink(icao){
+    if(!icao){ lookupLink.innerHTML = ""; return; }
+    var url = "https://www.liveatc.net/search/?icao=" + encodeURIComponent(icao.toLowerCase());
+    lookupLink.innerHTML = '<a href="'+url+'" target="_blank" rel="noopener">Find exact feed name for '+icao.toUpperCase()+' on LiveATC.net &rarr;</a>';
+  }
+
+  searchInput.addEventListener("input", function(){
+    renderResults(searchAirports(searchInput.value), searchInput.value);
+  });
+  searchInput.addEventListener("focus", function(){
+    if(searchInput.value) renderResults(searchAirports(searchInput.value), searchInput.value);
+  });
+
+  // ---- Advanced / custom mount --------------------------------------
+  mountPlayBtn.addEventListener("click", function(){
+    var m = mountInput.value.trim();
+    if(!m) return;
+    play(m, m);
+    updateLookupLink(m.replace(/[^a-z].*$/i, "") || m);
+  });
+  mountInput.addEventListener("keydown", function(e){
+    if(e.key === "Enter") mountPlayBtn.click();
+  });
+
+  // ---- Favorites (localStorage) --------------------------------------
+  function loadFavs(){
+    try{ return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
+    catch(e){ return []; }
+  }
+  function saveFavs(list){
+    localStorage.setItem(LS_KEY, JSON.stringify(list));
+  }
+  function renderFavs(){
+    var favs = loadFavs();
+    if(favs.length === 0){ favCard.style.display = "none"; return; }
+    favCard.style.display = "";
+    favsEl.innerHTML = "";
+    favs.forEach(function(f, i){
+      var btn = document.createElement("button");
+      btn.className = "feed-btn";
+      btn.dataset.mount = f.mount;
+      btn.innerHTML = f.label + ' <span style="opacity:.5">&times;</span>';
+      btn.addEventListener("click", function(e){
+        play(f.mount, f.label);
+      });
+      // long-press-free remove: small tap on the trailing × via double-click for simplicity
+      btn.addEventListener("dblclick", function(e){
+        e.stopPropagation();
+        favs.splice(i, 1);
+        saveFavs(favs);
+        renderFavs();
+      });
+      favsEl.appendChild(btn);
+    });
+  }
+  mountSaveBtn.addEventListener("click", function(){
+    var m = mountInput.value.trim();
+    if(!m) return;
+    var favs = loadFavs();
+    if(favs.some(function(f){ return f.mount === m; })) return;
+    favs.push({mount:m, label:m});
+    saveFavs(favs);
+    renderFavs();
+  });
+
+  // ---- Init -----------------------------------------------------------
+  renderPresets();
+  renderFavs();
+})();
+</script>
+</body>
+</html>
