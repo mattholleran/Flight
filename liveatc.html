@@ -669,10 +669,13 @@
   // limitation of their API, not a bug in this page). With no backend of
   // our own, routing through a public read-only proxy is the only
   // client-side fix. This is best-effort: it depends on a third party being
-  // reachable, and both proxies can occasionally be down or rate-limited.
+  // reachable, and any one of them can be down or rate-limited at a given
+  // moment — three independent providers are chained so one being out
+  // doesn't take the feature down.
   var CORS_PROXIES = [
     function(url){ return "https://api.allorigins.win/raw?url=" + encodeURIComponent(url); },
-    function(url){ return "https://corsproxy.io/?" + encodeURIComponent(url); }
+    function(url){ return "https://corsproxy.io/?" + encodeURIComponent(url); },
+    function(url){ return "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url); }
   ];
   function fetchViaProxy(targetUrl, timeoutMs, cb, isEmpty){
     function tryProxy(i){
