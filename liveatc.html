@@ -6,18 +6,23 @@
 <title>LiveATC Player</title>
 <style>
   :root{
-    --bg-1:#060b14;
-    --bg-2:#0c1626;
-    --panel:#101d30;
-    --panel-2:#152742;
-    --line:#213554;
-    --text:#eaf2ff;
-    --muted:#8ea3c4;
+    --bg-1:#05070a;
+    --bg-2:#0a1018;
+    --panel:#0e1720;
+    --panel-2:#131f2b;
+    --line:#28394a;
+    --text:#e8f0ee;
+    --muted:#7f9499;
     --accent:#33d1c0;
     --accent-2:#4d8dff;
     --warn:#ffb454;
     --live:#ff5470;
-    --radius:18px;
+    --vfr:#3ddc73;
+    --mvfr:#3fa9ff;
+    --ifr:#ff5252;
+    --lifr:#e05dff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace;
+    --radius:16px;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{height:100%;}
@@ -26,9 +31,9 @@
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
     color:var(--text);
     background:
-      radial-gradient(1200px 700px at 15% -10%, #14304f66, transparent 60%),
-      radial-gradient(900px 600px at 110% 10%, #0f3d3a66, transparent 55%),
-      linear-gradient(160deg,var(--bg-1),var(--bg-2) 60%,#050a12);
+      radial-gradient(1100px 650px at 15% -10%, #0f2a2666, transparent 60%),
+      radial-gradient(900px 600px at 110% 5%, #16233a66, transparent 55%),
+      linear-gradient(160deg,var(--bg-1),var(--bg-2) 55%,#020304);
     min-height:100%;
     padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(30px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
     overflow-x:hidden;
@@ -43,19 +48,29 @@
     box-shadow:0 8px 24px -6px #33d1c066;
   }
   .logo svg{width:26px;height:26px;}
-  h1{font-size:22px;margin:0;letter-spacing:.2px;}
-  header p{margin:2px 0 0;color:var(--muted);font-size:13px;}
+  h1{font-family:var(--mono);font-size:21px;margin:0;letter-spacing:1px;text-transform:uppercase;}
+  header p{margin:2px 0 0;color:var(--muted);font-size:12.5px;font-family:var(--mono);letter-spacing:.3px;}
+  .zulu{
+    margin-left:auto;flex:none;text-align:center;
+    font-family:var(--mono);font-size:16px;font-weight:700;color:var(--warn);
+    background:#0a1424;border:1px solid var(--line);border-radius:10px;
+    padding:8px 12px;letter-spacing:1px;line-height:1.1;
+    box-shadow:inset 0 0 0 1px #000, 0 4px 14px -8px #000a;
+  }
+  .zulu span{display:block;font-size:8px;color:var(--muted);letter-spacing:2px;margin-top:3px;}
 
   .card{
     background:linear-gradient(180deg,var(--panel),var(--panel-2));
     border:1px solid var(--line);
+    border-top:1px solid #3a5064;
     border-radius:var(--radius);
     padding:18px;
     margin-bottom:16px;
-    box-shadow:0 12px 30px -18px #000c;
+    box-shadow:0 12px 30px -18px #000c, inset 0 1px 0 #ffffff08;
   }
   .card h2{
-    font-size:12px;text-transform:uppercase;letter-spacing:1.2px;
+    font-family:var(--mono);
+    font-size:11.5px;text-transform:uppercase;letter-spacing:1.6px;
     color:var(--muted);margin:0 0 12px;font-weight:700;
   }
 
@@ -87,7 +102,7 @@
   }
   .result-item:active{background:#0e1c33;}
   .result-item .ri-name{font-size:14px;}
-  .result-item .ri-code{font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.5px;}
+  .result-item .ri-code{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.5px;}
   .result-item .ri-sub{font-size:12px;color:var(--muted);}
   .hint{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5;}
   .hint a{color:var(--accent-2);}
@@ -99,17 +114,19 @@
     border:1px solid var(--line);border-radius:16px;padding:14px;background:#0a1424;
   }
   .preset-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
-  .preset-title{font-size:16px;font-weight:700;}
+  .preset-title{font-family:var(--mono);font-size:16px;font-weight:700;letter-spacing:.5px;}
   .preset-sub{font-size:12px;color:var(--muted);margin-top:2px;}
   .badge{
+    font-family:var(--mono);
     font-size:10px;font-weight:700;letter-spacing:.5px;padding:4px 8px;border-radius:20px;
     background:#1c3a2f;color:var(--accent);border:1px solid #2a5747;
   }
   .badge.warn{background:#3a2f1c;color:var(--warn);border-color:#57472a;}
   .feed-list{display:flex;flex-wrap:wrap;gap:8px;}
   .feed-btn{
+    font-family:var(--mono);
     border:1px solid var(--line);background:#101f36;color:var(--text);
-    padding:9px 13px;border-radius:11px;font-size:13px;font-weight:600;
+    padding:9px 13px;border-radius:11px;font-size:12.5px;font-weight:600;letter-spacing:.3px;
     display:flex;align-items:center;gap:6px;
   }
   .feed-btn:active{background:#16304f;}
@@ -133,8 +150,8 @@
   }
   @keyframes blink{50%{opacity:.35;}}
   .now-text{flex:1;min-width:0;}
-  .now-title{font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .now-sub{font-size:12px;color:var(--muted);}
+  .now-title{font-family:var(--mono);font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.3px;}
+  .now-sub{font-family:var(--mono);font-size:11.5px;color:var(--muted);}
   .controls{display:flex;align-items:center;gap:14px;}
   .play-btn{
     width:60px;height:60px;border-radius:50%;flex:none;
@@ -172,6 +189,31 @@
   .favs{display:flex;flex-wrap:wrap;gap:8px;}
   footer{text-align:center;color:var(--muted);font-size:11px;margin:22px 0 6px;line-height:1.6;}
   footer a{color:var(--accent-2);}
+
+  /* weather & atis */
+  .wx-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:2px;}
+  .wx-airport{font-family:var(--mono);font-size:20px;font-weight:800;letter-spacing:1.5px;}
+  .wx-updated{font-size:10.5px;color:var(--muted);font-family:var(--mono);}
+  .cat-chip{
+    font-family:var(--mono);font-size:12px;font-weight:800;letter-spacing:1px;
+    padding:5px 12px;border-radius:8px;border:1px solid transparent;
+  }
+  .cat-chip.vfr{background:#0f2e1c;color:var(--vfr);border-color:#1f5c34;}
+  .cat-chip.mvfr{background:#0d2440;color:var(--mvfr);border-color:#1c4a7a;}
+  .cat-chip.ifr{background:#391414;color:var(--ifr);border-color:#6b2323;}
+  .cat-chip.lifr{background:#31123d;color:var(--lifr);border-color:#5c2170;}
+  .wx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px;margin:14px 0;}
+  .wx-tile{background:#0a1424;border:1px solid var(--line);border-radius:12px;padding:10px 12px;}
+  .wx-tile .wx-label{font-size:9.5px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px;}
+  .wx-tile .wx-value{font-family:var(--mono);font-size:15px;font-weight:700;}
+  .wx-sub-label{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:1.4px;color:var(--muted);margin:14px 0 5px;font-weight:700;}
+  .raw-box{
+    font-family:var(--mono);font-size:12px;line-height:1.6;color:#8fe89b;
+    background:#03110a;border:1px solid #1c3a24;border-radius:12px;padding:12px 14px;
+    white-space:pre-wrap;word-break:break-word;
+  }
+  .raw-box.atis{color:#ffd27a;background:#160f04;border-color:#4a3210;}
+  .wx-refresh{margin-top:14px;width:100%;}
 </style>
 </head>
 <body>
@@ -182,9 +224,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="#04141c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v8"/><path d="M12 10l9 5-3 1-6-2-6 2-3-1 9-5z"/><path d="M9 21l3-3 3 3"/></svg>
     </div>
     <div>
-      <h1>LiveATC Player</h1>
-      <p>Live air traffic control audio, streamed from liveatc.net</p>
+      <h1>LiveATC Panel</h1>
+      <p>ATC audio · weather · ATIS, by airport</p>
     </div>
+    <div class="zulu" id="zuluClock">--:--:--<span>ZULU</span></div>
   </header>
 
   <div class="card">
@@ -244,6 +287,16 @@
       </div>
     </div>
     <div class="hint" id="directLink"></div>
+  </div>
+
+  <div class="card" id="wxCard">
+    <div class="wx-head">
+      <h2 style="margin:0;">Weather &amp; ATIS</h2>
+      <span class="wx-updated" id="wxUpdated"></span>
+    </div>
+    <div id="wxBody">
+      <div class="hint">Pick a preset or search an airport above to see current weather and ATIS here.</div>
+    </div>
   </div>
 
   <footer>
@@ -370,12 +423,18 @@
     el.innerHTML = 'Trouble playing? <a href="'+STREAM_HOST_HTTPS+mount+'" target="_blank" rel="noopener">open this stream directly in Safari &rarr;</a>';
   }
 
-  function play(mount, label){
+  function guessIcaoFromMount(mount){
+    var m = /^[a-z]{4}/i.exec(mount);
+    return m ? m[0].toUpperCase() : null;
+  }
+
+  function play(mount, label, icao){
     if(!mount) return;
     mount = mount.trim().replace(/^\/+/, "").toLowerCase();
     if(!mount) return;
     triedFallback = false;
-    current = {mount:mount, label:label || mount};
+    var icaoResolved = (icao || guessIcaoFromMount(mount) || "").toUpperCase() || null;
+    current = {mount:mount, label:label || mount, icao:icaoResolved};
     nowTitle.textContent = current.label;
     nowSub.textContent = mount;
     nowSub.style.color = "";
@@ -389,6 +448,7 @@
       p.catch(function(){ /* iOS may block autoplay without a fresh tap; user can tap play again */ });
     }
     highlightActiveFeed(mount);
+    setActiveAirport(icaoResolved);
   }
 
   audio.addEventListener("waiting", function(){ setStatus("buffering"); });
@@ -448,7 +508,7 @@
         btn.dataset.mount = f.mount;
         btn.textContent = f.label;
         btn.addEventListener("click", function(){
-          play(f.mount, p.icao + " " + f.label);
+          play(f.mount, p.icao + " " + f.label, p.icao);
         });
         list.appendChild(btn);
       });
@@ -515,7 +575,7 @@
     var guess = a.icao.toLowerCase();
     mountInput.value = guess;
     updateLookupLink(a.icao);
-    play(guess, a.icao + " (auto)");
+    play(guess, a.icao + " (auto)", a.icao);
     searchInput.value = a.icao;
     renderResults([], "");
   }
@@ -615,7 +675,7 @@
           '<div class="ri-code">'+code+'</div>';
         row.addEventListener("click", function(){
           mountInput.value = m;
-          play(m, code + " " + m);
+          play(m, code + " " + m, code);
         });
         liveResults.appendChild(row);
       });
@@ -652,7 +712,7 @@
       btn.dataset.mount = f.mount;
       btn.innerHTML = f.label + ' <span style="opacity:.5">&times;</span>';
       btn.addEventListener("click", function(e){
-        play(f.mount, f.label);
+        play(f.mount, f.label, f.icao);
       });
       // long-press-free remove: small tap on the trailing × via double-click for simplicity
       btn.addEventListener("dblclick", function(e){
@@ -669,10 +729,225 @@
     if(!m) return;
     var favs = loadFavs();
     if(favs.some(function(f){ return f.mount === m; })) return;
-    favs.push({mount:m, label:m});
+    favs.push({mount:m, label:m, icao:(current && current.mount === m && current.icao) || guessIcaoFromMount(m)});
     saveFavs(favs);
     renderFavs();
   });
+
+  // ---- Weather & ATIS --------------------------------------------------
+  // No backend here, so this fetches straight from public aviation APIs at
+  // runtime (from whatever device/network is actually running the page):
+  //  - METAR/TAF: aviationweather.gov (NOAA/FAA public data API)
+  //  - Digital ATIS: datis.clowd.io (community-run, best-effort)
+  // Flight category (VFR/MVFR/IFR/LIFR) is computed locally from the raw
+  // METAR using the standard FAA ceiling/visibility thresholds, rather than
+  // trusting a guessed JSON field name.
+  var currentAirport = null;
+  var wxTimer = null;
+  var CATEGORY_RANK = {VFR:0, MVFR:1, IFR:2, LIFR:3};
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"]/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];
+    });
+  }
+
+  function parseMetar(raw){
+    raw = (raw || "").trim();
+    if(!raw) return null;
+    var out = {raw:raw, clouds:[]};
+    raw.split(/\s+/).forEach(function(tok){
+      if(/^\d{6}Z$/.test(tok)){ out.time = tok; return; }
+      var wm = tok.match(/^(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?(KT|MPS)$/);
+      if(wm){
+        out.windDir = wm[1]; out.windSpd = parseInt(wm[2],10);
+        out.windGust = wm[4] ? parseInt(wm[4],10) : null; out.windUnit = wm[5];
+        return;
+      }
+      var cm = tok.match(/^(FEW|SCT|BKN|OVC)(\d{3})/);
+      if(cm){ out.clouds.push({cover:cm[1], base:parseInt(cm[2],10)*100}); return; }
+      var tm = tok.match(/^(M?\d{2})\/(M?\d{2})$/);
+      if(tm && out.temp === undefined){
+        out.temp = parseInt(tm[1].replace("M","-"),10);
+        out.dewp = parseInt(tm[2].replace("M","-"),10);
+        return;
+      }
+      var am = tok.match(/^A(\d{4})$/);
+      if(am){ out.altimIn = parseInt(am[1],10) / 100; return; }
+      var qm = tok.match(/^Q(\d{4})$/);
+      if(qm){ out.altimHpa = parseInt(qm[1],10); return; }
+    });
+    var visMatch = raw.match(/\s(\d{1,2} \d\/\d|\d\/\d|\d{1,2})SM(?:\s|$)/);
+    if(visMatch){
+      var v = visMatch[1];
+      if(v.indexOf(" ") !== -1){
+        var parts = v.split(" "), frac = parts[1].split("/");
+        out.visSm = parseInt(parts[0],10) + (parseInt(frac[0],10) / parseInt(frac[1],10));
+      } else if(v.indexOf("/") !== -1){
+        var frac2 = v.split("/");
+        out.visSm = parseInt(frac2[0],10) / parseInt(frac2[1],10);
+      } else {
+        out.visSm = parseInt(v,10);
+      }
+    }
+    var ceiling = null;
+    out.clouds.forEach(function(c){
+      if((c.cover === "BKN" || c.cover === "OVC") && (ceiling === null || c.base < ceiling)) ceiling = c.base;
+    });
+    out.ceiling = ceiling;
+    function catFromVis(v){
+      if(v === undefined || v === null) return "VFR";
+      if(v < 1) return "LIFR"; if(v < 3) return "IFR"; if(v < 5) return "MVFR"; return "VFR";
+    }
+    function catFromCeil(c){
+      if(c === null) return "VFR";
+      if(c < 500) return "LIFR"; if(c < 1000) return "IFR"; if(c < 3000) return "MVFR"; return "VFR";
+    }
+    var vc = catFromVis(out.visSm), cc = catFromCeil(out.ceiling);
+    out.category = CATEGORY_RANK[vc] > CATEGORY_RANK[cc] ? vc : cc;
+    return out;
+  }
+
+  function fmtWind(m){
+    if(!m.windDir) return "Calm / unreported";
+    var dir = m.windDir === "VRB" ? "VRB" : m.windDir + "°";
+    var s = dir + " @ " + m.windSpd + (m.windUnit === "KT" ? "kt" : m.windUnit.toLowerCase());
+    if(m.windGust) s += " G" + m.windGust;
+    return s;
+  }
+  function fmtVis(m){
+    if(m.visSm === undefined) return "—";
+    var v = Math.round(m.visSm * 100) / 100;
+    return (v % 1 === 0 ? v : v.toFixed(2).replace(/0+$/,"").replace(/\.$/,"")) + " SM";
+  }
+  function fmtSky(m){
+    if(!m.clouds.length) return "Clear";
+    return m.clouds.map(function(c){ return c.cover + " " + c.base + "ft"; }).join(", ");
+  }
+  function fmtTemp(m){
+    if(m.temp === undefined) return "—";
+    var f = Math.round(m.temp * 9 / 5 + 32);
+    return m.temp + "°C / " + f + "°F (DP " + m.dewp + "°C)";
+  }
+  function fmtAltim(m){
+    if(m.altimIn !== undefined) return m.altimIn.toFixed(2) + " inHg";
+    if(m.altimHpa !== undefined) return m.altimHpa + " hPa";
+    return "—";
+  }
+  function wxTile(label, value){
+    return '<div class="wx-tile"><div class="wx-label">'+label+'</div><div class="wx-value">'+escapeHtml(value)+'</div></div>';
+  }
+  function clockZ(){
+    var d = new Date();
+    function pad(n){ return (n < 10 ? "0" : "") + n; }
+    return pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + "Z";
+  }
+
+  function renderWeather(icao, metarRaw, tafRaw){
+    var body = document.getElementById("wxBody");
+    var m = parseMetar(metarRaw);
+    if(!m){
+      body.innerHTML = '<div class="hint">No current METAR available for '+icao+'.</div>';
+      return;
+    }
+    var html = '';
+    html += '<div class="wx-head" style="margin-bottom:6px;">';
+    html += '<div class="wx-airport">'+icao+'</div>';
+    html += '<span class="cat-chip '+m.category.toLowerCase()+'">'+m.category+'</span>';
+    html += '</div>';
+    html += '<div class="wx-grid">';
+    html += wxTile("Wind", fmtWind(m));
+    html += wxTile("Visibility", fmtVis(m));
+    html += wxTile("Sky", fmtSky(m));
+    html += wxTile("Temp / DP", fmtTemp(m));
+    html += wxTile("Altimeter", fmtAltim(m));
+    html += '</div>';
+    html += '<div class="wx-sub-label">Raw METAR</div>';
+    html += '<div class="raw-box">'+escapeHtml(m.raw)+'</div>';
+    if(tafRaw){
+      html += '<div class="wx-sub-label">Raw TAF</div>';
+      html += '<div class="raw-box">'+escapeHtml(tafRaw)+'</div>';
+    }
+    html += '<div id="atisBlock"></div>';
+    html += '<button class="btn wx-refresh" id="wxRefreshBtn">Refresh weather &amp; ATIS</button>';
+    body.innerHTML = html;
+    document.getElementById("wxRefreshBtn").addEventListener("click", function(){ fetchWeather(icao); });
+    var updated = document.getElementById("wxUpdated");
+    if(updated) updated.textContent = "Updated " + clockZ();
+    fetchAtis(icao);
+  }
+
+  function fetchWeather(icao){
+    var body = document.getElementById("wxBody");
+    body.innerHTML = '<div class="hint">Loading weather for '+icao+'…</div>';
+    var metarUrl = "https://aviationweather.gov/api/data/metar?ids=" + encodeURIComponent(icao) + "&format=raw";
+    var tafUrl = "https://aviationweather.gov/api/data/taf?ids=" + encodeURIComponent(icao) + "&format=raw";
+    Promise.all([
+      fetch(metarUrl, {cache:"no-store"}).then(function(r){ return r.ok ? r.text() : ""; }).catch(function(){ return null; }),
+      fetch(tafUrl, {cache:"no-store"}).then(function(r){ return r.ok ? r.text() : ""; }).catch(function(){ return ""; })
+    ]).then(function(res){
+      if(res[0] === null){
+        body.innerHTML = '<div class="hint">Couldn\'t reach the weather service right now.</div><button class="btn wx-refresh" id="wxRetryBtn">Retry</button>';
+        var retry = document.getElementById("wxRetryBtn");
+        if(retry) retry.addEventListener("click", function(){ fetchWeather(icao); });
+        return;
+      }
+      var metarRaw = (res[0] || "").trim().split("\n")[0];
+      var tafRaw = (res[1] || "").trim();
+      if(!metarRaw){
+        body.innerHTML = '<div class="hint">No current METAR reported for '+icao+'.</div>';
+        return;
+      }
+      renderWeather(icao, metarRaw, tafRaw);
+    });
+  }
+
+  function fetchAtis(icao){
+    var block = document.getElementById("atisBlock");
+    if(!block) return;
+    block.innerHTML = '<div class="wx-sub-label">ATIS</div><div class="hint">Loading ATIS…</div>';
+    fetch("https://datis.clowd.io/api/" + encodeURIComponent(icao), {cache:"no-store"})
+      .then(function(r){ if(!r.ok) throw new Error("no atis"); return r.json(); })
+      .then(function(data){
+        var arr = (Array.isArray(data) ? data : [data]).filter(function(x){ return x; });
+        if(arr.length === 0) throw new Error("empty");
+        var html = '<div class="wx-sub-label">ATIS</div>';
+        arr.forEach(function(entry){
+          var text = entry.datis || entry.text || entry.atis_text || JSON.stringify(entry);
+          var code = entry.code || entry.letter || "";
+          var type = entry.type ? (" · " + String(entry.type).toUpperCase()) : "";
+          html += '<div class="hint" style="margin-top:8px;">Info '+escapeHtml(code)+type+'</div>';
+          html += '<div class="raw-box atis">'+escapeHtml(text)+'</div>';
+        });
+        block.innerHTML = html;
+      })
+      .catch(function(){
+        block.innerHTML = '<div class="wx-sub-label">ATIS</div><div class="hint">No digital ATIS available for '+icao+' (smaller or non-towered airports often don\'t have one), or the lookup service is unreachable.</div>';
+      });
+  }
+
+  function setActiveAirport(icao){
+    if(!icao) return;
+    icao = icao.toUpperCase();
+    if(icao === currentAirport) return;
+    currentAirport = icao;
+    fetchWeather(icao);
+    if(wxTimer) clearInterval(wxTimer);
+    wxTimer = setInterval(function(){ fetchWeather(icao); }, 5 * 60 * 1000);
+  }
+
+  // ---- Zulu clock --------------------------------------------------------
+  (function(){
+    var el = document.getElementById("zuluClock");
+    if(!el) return;
+    function tick(){
+      var d = new Date();
+      function pad(n){ return (n < 10 ? "0" : "") + n; }
+      el.innerHTML = pad(d.getUTCHours())+":"+pad(d.getUTCMinutes())+":"+pad(d.getUTCSeconds())+"<span>ZULU</span>";
+    }
+    tick();
+    setInterval(tick, 1000);
+  })();
 
   // ---- Init -----------------------------------------------------------
   renderPresets();
