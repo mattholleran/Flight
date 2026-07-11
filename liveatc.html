@@ -620,11 +620,22 @@
     updateLookupLink(a.icao);
     mountInput.value = a.icao.toLowerCase();
     setActiveAirport(a.icao); // weather/ATIS load immediately, independent of feed lookup
-    // Don't guess-and-play a bare ICAO mount here — that only happens to work
-    // for small single-feed airports. Busier fields (e.g. KDEN) split into
-    // separate named feeds, so a bare guess just plays nothing and throws a
-    // "couldn't load" error. Verify against LiveATC.net first instead, same
-    // as the manual "search live" flow, and let the user pick a real feed.
+
+    // If this airport is one of our hand-verified presets, reuse that data
+    // directly instead of re-discovering it over an unreliable network
+    // lookup — this is what made searching "KSTL" behave differently (and
+    // worse) than tapping the KSTL preset chip for the exact same airport.
+    var preset = PRESETS.filter(function(p){ return p.icao === a.icao; })[0];
+    document.getElementById("liveSearchArea").innerHTML = "";
+    if(preset){
+      showPresetFeeds(preset);
+      return;
+    }
+
+    // Otherwise we have no verified mount names for it — don't guess-and-play
+    // a bare ICAO mount, since that only happens to work for small
+    // single-feed airports (busier fields split into separate named feeds).
+    // Verify against LiveATC.net instead and let the user pick a real feed.
     ensureLiveArea();
     document.getElementById("liveStatus").textContent = "Looking up live feeds for " + a.icao + " (" + a.name + ")...";
     runLiveSearch(a.icao);
