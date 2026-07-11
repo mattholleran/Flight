@@ -634,9 +634,33 @@
     });
   }
 
-  // ---- Live lookup on liveatc.net (via a public read-only CORS proxy) ----
-  // There's no server here, so this is best-effort: it depends on a third-party
-  // proxy being reachable and liveatc.net's page structure staying the same.
+  // ---- Shared CORS-proxy relay -------------------------------------------
+  // liveatc.net, aviationweather.gov, and datis.clowd.io all serve public
+  // data but none of them send Access-Control-Allow-Origin, so a browser's
+  // fetch() is blocked from reading the response no matter how this page is
+  // hosted (confirmed for aviationweather.gov — it's a known, documented
+  // limitation of their API, not a bug in this page). With no backend of
+  // our own, routing through a public read-only proxy is the only
+  // client-side fix. This is best-effort: it depends on a third party being
+  // reachable, and both proxies can occasionally be down or rate-limited.
+  var CORS_PROXIES = [
+    function(url){ return "https://api.allorigins.win/raw?url=" + encodeURIComponent(url); },
+    function(url){ return "https://corsproxy.io/?" + encodeURIComponent(url); }
+  ];
+  function fetchViaProxy(targetUrl, timeoutMs, cb, isEmpty){
+    function tryProxy(i){
+      if(i >= CORS_PROXIES.length){ cb(null); return; }
+      fetchWithTimeout(CORS_PROXIES[i](targetUrl), timeoutMs)
+        .then(function(r){ if(!r.ok) throw new Error("bad status " + r.status); return r.text(); })
+        .then(function(text){
+          if(isEmpty && isEmpty(text) && i < CORS_PROXIES.length - 1){ tryProxy(i+1); return; }
+          cb(text);
+        })
+        .catch(function(){ tryProxy(i+1); });
+    }
+    tryProxy(0);
+  }
+
   function isIcaoLike(q){
     return /^[a-z0-9]{3,4}$/i.test(q.trim());
   }
@@ -657,26 +681,13 @@
   function fetchLiveMounts(icaoRaw, cb){
     var icao = icaoRaw.trim().toLowerCase();
     var target = "https://www.liveatc.net/search/?icao=" + encodeURIComponent(icao);
-    var proxies = [
-      "https://api.allorigins.win/raw?url=" + encodeURIComponent(target),
-      "https://corsproxy.io/?" + encodeURIComponent(target)
-    ];
-    function tryProxy(i){
-      if(i >= proxies.length){ cb(null); return; }
-      fetch(proxies[i], {cache:"no-store"})
-        .then(function(r){ if(!r.ok) throw new Error("bad status " + r.status); return r.text(); })
-        .then(function(html){
-          var found = {};
-          var re = /mount=([a-z0-9_]+)/gi;
-          var m;
-          while((m = re.exec(html))){ found[m[1].toLowerCase()] = true; }
-          var list = Object.keys(found);
-          if(list.length === 0 && i < proxies.length - 1){ tryProxy(i+1); return; }
-          cb(list);
-        })
-        .catch(function(){ tryProxy(i+1); });
-    }
-    tryProxy(0);
+    fetchViaProxy(target, 8000, function(html){
+      if(html === null){ cb(null); return; }
+      var found = {};
+      var re = /mount=([a-z0-9_]+)/gi, m;
+      while((m = re.exec(html))){ found[m[1].toLowerCase()] = true; }
+      cb(Object.keys(found));
+    }, function(html){ return !/mount=/i.test(html); });
   }
 
   function runLiveSearch(code){
@@ -1161,43 +1172,36 @@
   }
 
   function fetchMetar(icao, mySeq){
-    var url = "https://aviationweather.gov/api/data/metar?ids=" + encodeURIComponent(icao) + "&format=raw";
-    fetchWithTimeout(url, 10000)
-      .then(function(r){ return r.ok ? r.text() : Promise.reject(new Error("bad status")); })
-      .then(function(text){
-        if(mySeq !== wxReqSeq) return;
-        var raw = text.trim().split("\n")[0];
-        if(!raw) throw new Error("no metar");
-        var m = parseMetar(raw);
-        renderMetar(m);
-        var updated = document.getElementById("wxUpdated");
-        if(updated) updated.textContent = "Updated " + clockZ();
-      })
-      .catch(function(){
-        if(mySeq !== wxReqSeq) return;
-        renderMetarError(icao, function(){ fetchMetar(icao, mySeq); });
-      });
+    var target = "https://aviationweather.gov/api/data/metar?ids=" + encodeURIComponent(icao) + "&format=raw";
+    fetchViaProxy(target, 8000, function(text){
+      if(mySeq !== wxReqSeq) return;
+      var raw = text === null ? "" : text.trim().split("\n")[0];
+      if(!raw){ renderMetarError(icao, function(){ fetchMetar(icao, mySeq); }); return; }
+      renderMetar(parseMetar(raw));
+      var updated = document.getElementById("wxUpdated");
+      if(updated) updated.textContent = "Updated " + clockZ();
+    }, function(text){ return !text || !text.trim(); });
   }
 
   function fetchTaf(icao, mySeq){
-    var url = "https://aviationweather.gov/api/data/taf?ids=" + encodeURIComponent(icao) + "&format=raw";
-    fetchWithTimeout(url, 10000)
-      .then(function(r){ return r.ok ? r.text() : ""; })
-      .then(function(text){ if(mySeq === wxReqSeq) renderTaf(text.trim(), icao); })
-      .catch(function(){ if(mySeq === wxReqSeq) renderTaf("", icao); });
+    var target = "https://aviationweather.gov/api/data/taf?ids=" + encodeURIComponent(icao) + "&format=raw";
+    fetchViaProxy(target, 8000, function(text){
+      if(mySeq !== wxReqSeq) return;
+      renderTaf(text === null ? "" : text.trim(), icao);
+    });
   }
 
   function fetchAtis(icao, mySeq){
-    var url = "https://datis.clowd.io/api/" + encodeURIComponent(icao);
-    fetchWithTimeout(url, 10000)
-      .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error("no atis")); })
-      .then(function(data){
-        if(mySeq !== wxReqSeq) return;
-        var arr = (Array.isArray(data) ? data : [data]).filter(function(x){ return x; });
-        if(arr.length === 0) throw new Error("empty");
-        renderAtis(icao, arr);
-      })
-      .catch(function(){ if(mySeq === wxReqSeq) renderAtisUnavailable(icao); });
+    var target = "https://datis.clowd.io/api/" + encodeURIComponent(icao);
+    fetchViaProxy(target, 8000, function(text){
+      if(mySeq !== wxReqSeq) return;
+      if(text === null){ renderAtisUnavailable(icao); return; }
+      var data;
+      try{ data = JSON.parse(text); } catch(e){ renderAtisUnavailable(icao); return; }
+      var arr = (Array.isArray(data) ? data : [data]).filter(function(x){ return x; });
+      if(arr.length === 0){ renderAtisUnavailable(icao); return; }
+      renderAtis(icao, arr);
+    });
   }
 
   // Kicks off METAR, TAF, and ATIS at the same time and lets each section
