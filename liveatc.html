@@ -107,11 +107,17 @@
   .hint{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5;}
   .hint a{color:var(--accent-2);}
 
-  /* presets */
-  .presets{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-  @media (max-width:560px){.presets{grid-template-columns:1fr;}}
-  .preset{
-    border:1px solid var(--line);border-radius:16px;padding:14px;background:#0a1424;
+  /* presets — compact quick-pick chips + a single expandable feed panel */
+  .quickpicks{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+  .qp-btn{
+    font-family:var(--mono);font-size:12.5px;font-weight:700;letter-spacing:.4px;
+    padding:8px 14px;border-radius:20px;border:1px solid var(--line);
+    background:#0a1424;color:var(--text);
+  }
+  .qp-btn:active{background:#0e1c33;}
+  .qp-btn.active{background:linear-gradient(145deg,var(--accent),var(--accent-2));color:#04141c;border-color:transparent;}
+  .preset-feeds-panel{
+    margin-top:10px;padding:12px 14px;border-radius:14px;background:#0a1424;border:1px solid var(--line);
   }
   .preset-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
   .preset-title{font-family:var(--mono);font-size:16px;font-weight:700;letter-spacing:.5px;}
@@ -262,14 +268,11 @@
                placeholder="ICAO, IATA, city, or airport name (e.g. KSTL, STL, St. Louis)">
       </div>
     </form>
+    <div class="quickpicks" id="quickPicks"></div>
+    <div id="presetFeeds"></div>
     <div id="results" class="results"></div>
     <div class="hint" id="searchHint"></div>
     <div id="liveSearchArea"></div>
-  </div>
-
-  <div class="card">
-    <h2>Presets</h2>
-    <div class="presets" id="presets"></div>
   </div>
 
   <div class="card" id="favCard" style="display:none;">
@@ -419,7 +422,7 @@
   var searchInput = document.getElementById("searchInput");
   var resultsEl = document.getElementById("results");
   var searchHint = document.getElementById("searchHint");
-  var presetsEl = document.getElementById("presets");
+  var quickPicksEl = document.getElementById("quickPicks");
   var favCard = document.getElementById("favCard");
   var favsEl = document.getElementById("favs");
   var mountInput = document.getElementById("mountInput");
@@ -510,43 +513,41 @@
   audio.volume = parseFloat(volume.value);
 
   // ---- Presets -----------------------------------------------------------
-  function renderPresets(){
-    presetsEl.innerHTML = "";
+  // Compact pill row instead of a full card per airport; tapping a pill
+  // expands that airport's feeds into a single shared panel below it,
+  // rather than permanently showing every preset's full feed list at once.
+  function renderQuickPicks(){
+    quickPicksEl.innerHTML = "";
     PRESETS.forEach(function(p){
-      var card = document.createElement("div");
-      card.className = "preset";
-      var top = document.createElement("div");
-      top.className = "preset-top";
-      top.innerHTML =
-        '<div><div class="preset-title">'+p.icao+'</div>'+
-        '<div class="preset-sub">'+p.name+' · '+p.city+'</div></div>'+
-        '<span class="badge'+(p.verified ? '' : ' warn')+'">'+(p.verified ? 'verified' : 'unverified')+'</span>';
-      card.appendChild(top);
-
-      var list = document.createElement("div");
-      list.className = "feed-list";
-      p.feeds.forEach(function(f){
-        var btn = document.createElement("button");
-        btn.className = "feed-btn";
-        btn.dataset.mount = f.mount;
-        btn.textContent = f.label;
-        btn.addEventListener("click", function(){
-          play(f.mount, p.icao + " " + f.label, p.icao);
-        });
-        list.appendChild(btn);
-      });
-      card.appendChild(list);
-
-      if(!p.verified){
-        var note = document.createElement("div");
-        note.className = "hint";
-        note.style.marginTop = "8px";
-        note.innerHTML = 'Feed name unconfirmed — if it doesn\'t play, tap "search" below and use "find exact feed" to look it up.';
-        card.appendChild(note);
-      }
-
-      presetsEl.appendChild(card);
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "qp-btn";
+      btn.dataset.icao = p.icao;
+      btn.textContent = p.icao + (p.verified ? "" : " *");
+      btn.addEventListener("click", function(){ showPresetFeeds(p); });
+      quickPicksEl.appendChild(btn);
     });
+  }
+
+  function showPresetFeeds(p){
+    document.querySelectorAll(".qp-btn").forEach(function(b){
+      b.classList.toggle("active", b.dataset.icao === p.icao);
+    });
+    var panel = document.getElementById("presetFeeds");
+    var html = '<div class="preset-feeds-panel"><div class="preset-top">'
+      + '<div><div class="preset-title">'+p.icao+'</div><div class="preset-sub">'+p.name+' · '+p.city+'</div></div>'
+      + '<span class="badge'+(p.verified ? '' : ' warn')+'">'+(p.verified ? 'verified' : 'unverified')+'</span>'
+      + '</div><div class="feed-list">'
+      + p.feeds.map(function(f){ return '<button type="button" class="feed-btn" data-mount="'+f.mount+'">'+escapeHtml(f.label)+'</button>'; }).join("")
+      + '</div>'
+      + (p.verified ? "" : '<div class="hint" style="margin-top:8px;">Feed name unconfirmed — if it doesn\'t play, use Search below to find the exact feed.</div>')
+      + '</div>';
+    panel.innerHTML = html;
+    panel.querySelectorAll(".feed-btn").forEach(function(btn){
+      var f = p.feeds.filter(function(x){ return x.mount === btn.dataset.mount; })[0];
+      btn.addEventListener("click", function(){ play(f.mount, p.icao + " " + f.label, p.icao); });
+    });
+    highlightActiveFeed(current ? current.mount : null);
   }
 
   function highlightActiveFeed(mount){
@@ -558,14 +559,22 @@
   // ---- Search --------------------------------------------------------
   function normalize(s){ return (s||"").toLowerCase(); }
 
+  // Matches per word rather than requiring the whole query as one literal
+  // substring, and expands "Intl" <-> "International" so a fully-spelled-out
+  // name (e.g. "Denver International") still finds an entry stored as
+  // "Denver Intl".
+  function airportSearchText(a){
+    var expanded = a.name.replace(/\bIntl\b/gi, "International");
+    return normalize([a.icao, a.iata, a.name, expanded, a.city].join(" "));
+  }
+
   function searchAirports(q){
     q = normalize(q).trim();
     if(!q) return [];
+    var tokens = q.split(/\s+/).filter(Boolean);
     return AIRPORTS.filter(function(a){
-      return normalize(a.icao).indexOf(q) !== -1 ||
-             normalize(a.iata).indexOf(q) !== -1 ||
-             normalize(a.name).indexOf(q) !== -1 ||
-             normalize(a.city).indexOf(q) !== -1;
+      var text = airportSearchText(a);
+      return tokens.every(function(t){ return text.indexOf(t) !== -1; });
     }).slice(0, 8);
   }
 
@@ -1411,7 +1420,8 @@
   })();
 
   // ---- Init -----------------------------------------------------------
-  renderPresets();
+  renderQuickPicks();
+  showPresetFeeds(PRESETS[0]); // expand KSTL's feeds by default
   renderFavs();
   setActiveAirport("KSTL"); // default weather/ATIS view on load; audio never autoplays
 })();
