@@ -198,6 +198,7 @@
     </div>
     <div id="results" class="results"></div>
     <div class="hint" id="searchHint"></div>
+    <div id="liveSearchArea"></div>
   </div>
 
   <div class="card">
@@ -242,6 +243,7 @@
         <input type="range" id="volume" min="0" max="1" step="0.01" value="0.9">
       </div>
     </div>
+    <div class="hint" id="directLink"></div>
   </div>
 
   <footer>
@@ -362,17 +364,30 @@
     statusDot.className = "dot" + (state ? " " + state : "");
   }
 
+  function updateDirectLink(mount){
+    var el = document.getElementById("directLink");
+    if(!el) return;
+    el.innerHTML = 'Trouble playing? <a href="'+STREAM_HOST_HTTPS+mount+'" target="_blank" rel="noopener">open this stream directly in Safari &rarr;</a>';
+  }
+
   function play(mount, label){
     if(!mount) return;
-    mount = mount.trim().replace(/^\/+/, "");
+    mount = mount.trim().replace(/^\/+/, "").toLowerCase();
     if(!mount) return;
     triedFallback = false;
     current = {mount:mount, label:label || mount};
     nowTitle.textContent = current.label;
     nowSub.textContent = mount;
+    nowSub.style.color = "";
     setStatus("buffering");
+    updateDirectLink(mount);
+    audio.pause();
     audio.src = STREAM_HOST_HTTPS + mount;
-    audio.play().catch(function(){ /* wait for user gesture / error event */ });
+    audio.load();
+    var p = audio.play();
+    if(p && typeof p.catch === "function"){
+      p.catch(function(){ /* iOS may block autoplay without a fresh tap; user can tap play again */ });
+    }
     highlightActiveFeed(mount);
   }
 
@@ -389,10 +404,12 @@
       // https mount may not be served on this mirror — retry over plain http
       triedFallback = true;
       audio.src = STREAM_HOST_HTTP + current.mount;
+      audio.load();
       audio.play().catch(function(){});
     } else {
       setStatus("");
-      nowSub.textContent = "Couldn't load this feed — the mount ID may be wrong or offline";
+      nowSub.textContent = "Couldn't load this feed — try \"open this stream directly\" below, or the mount ID may be wrong/offline";
+      nowSub.style.color = "var(--live)";
       playIcon.innerHTML = ICONS.play;
     }
   });
@@ -511,10 +528,99 @@
 
   searchInput.addEventListener("input", function(){
     renderResults(searchAirports(searchInput.value), searchInput.value);
+    renderLiveSearchButton(searchInput.value);
   });
   searchInput.addEventListener("focus", function(){
     if(searchInput.value) renderResults(searchAirports(searchInput.value), searchInput.value);
   });
+  searchInput.addEventListener("keydown", function(e){
+    if(e.key !== "Enter") return;
+    e.preventDefault();
+    var q = searchInput.value.trim();
+    if(!q) return;
+    var matches = searchAirports(q);
+    if(matches.length === 1){
+      selectAirport(matches[0]);
+    } else if(isIcaoLike(q)){
+      runLiveSearch(q.toUpperCase());
+    }
+  });
+
+  // ---- Live lookup on liveatc.net (via a public read-only CORS proxy) ----
+  // There's no server here, so this is best-effort: it depends on a third-party
+  // proxy being reachable and liveatc.net's page structure staying the same.
+  function isIcaoLike(q){
+    return /^[a-z0-9]{3,4}$/i.test(q.trim());
+  }
+
+  function renderLiveSearchButton(query){
+    var area = document.getElementById("liveSearchArea");
+    if(!isIcaoLike(query)){ area.innerHTML = ""; return; }
+    var code = query.trim().toUpperCase();
+    area.innerHTML =
+      '<button class="btn" id="liveSearchBtn" style="width:100%;margin-top:8px;">Search LiveATC.net live for '+code+'</button>'+
+      '<div class="hint" id="liveStatus"></div>'+
+      '<div class="results" id="liveResults"></div>';
+    document.getElementById("liveSearchBtn").addEventListener("click", function(){
+      runLiveSearch(code);
+    });
+  }
+
+  function fetchLiveMounts(icaoRaw, cb){
+    var icao = icaoRaw.trim().toLowerCase();
+    var target = "https://www.liveatc.net/search/?icao=" + encodeURIComponent(icao);
+    var proxies = [
+      "https://api.allorigins.win/raw?url=" + encodeURIComponent(target),
+      "https://corsproxy.io/?" + encodeURIComponent(target)
+    ];
+    function tryProxy(i){
+      if(i >= proxies.length){ cb(null); return; }
+      fetch(proxies[i], {cache:"no-store"})
+        .then(function(r){ if(!r.ok) throw new Error("bad status " + r.status); return r.text(); })
+        .then(function(html){
+          var found = {};
+          var re = /mount=([a-z0-9_]+)/gi;
+          var m;
+          while((m = re.exec(html))){ found[m[1].toLowerCase()] = true; }
+          var list = Object.keys(found);
+          if(list.length === 0 && i < proxies.length - 1){ tryProxy(i+1); return; }
+          cb(list);
+        })
+        .catch(function(){ tryProxy(i+1); });
+    }
+    tryProxy(0);
+  }
+
+  function runLiveSearch(code){
+    var status = document.getElementById("liveStatus");
+    var liveResults = document.getElementById("liveResults");
+    if(!status || !liveResults) return;
+    liveResults.innerHTML = "";
+    status.textContent = "Looking up live feeds for " + code + "...";
+    fetchLiveMounts(code, function(mounts){
+      if(mounts === null){
+        status.innerHTML = "Couldn't reach LiveATC.net right now (proxy or network issue). Try again, or use Advanced below with a mount ID you find on the site yourself.";
+        return;
+      }
+      if(mounts.length === 0){
+        status.textContent = "No feeds found for " + code + " — it may not have a live feed, or the page changed.";
+        return;
+      }
+      status.textContent = mounts.length + " feed(s) found — tap to play:";
+      mounts.forEach(function(m){
+        var row = document.createElement("div");
+        row.className = "result-item";
+        row.innerHTML =
+          '<div><div class="ri-name">'+m+'</div><div class="ri-sub">tap to play, or open Advanced to save it</div></div>'+
+          '<div class="ri-code">'+code+'</div>';
+        row.addEventListener("click", function(){
+          mountInput.value = m;
+          play(m, code + " " + m);
+        });
+        liveResults.appendChild(row);
+      });
+    });
+  }
 
   // ---- Advanced / custom mount --------------------------------------
   mountPlayBtn.addEventListener("click", function(){
