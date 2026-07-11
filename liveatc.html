@@ -545,10 +545,11 @@
     document.querySelectorAll(".qp-btn").forEach(function(b){
       b.classList.toggle("active", b.dataset.icao === p.icao);
     });
+    var badgeText = p.cached ? "cached" : (p.verified ? "verified" : "unverified");
     var panel = document.getElementById("presetFeeds");
     var html = '<div class="preset-feeds-panel"><div class="preset-top">'
       + '<div><div class="preset-title">'+p.icao+'</div><div class="preset-sub">'+p.name+' · '+p.city+'</div></div>'
-      + '<span class="badge'+(p.verified ? '' : ' warn')+'">'+(p.verified ? 'verified' : 'unverified')+'</span>'
+      + '<span class="badge'+(p.verified ? '' : ' warn')+'">'+badgeText+'</span>'
       + '</div><div class="feed-list">'
       + p.feeds.map(function(f){ return '<button type="button" class="feed-btn" data-mount="'+f.mount+'">'+escapeHtml(f.label)+'</button>'; }).join("")
       + '</div>'
@@ -560,6 +561,66 @@
       btn.addEventListener("click", function(){ play(f.mount, p.icao + " " + f.label, p.icao); });
     });
     highlightActiveFeed(current ? current.mount : null);
+  }
+
+  // ---- Learned feed cache --------------------------------------------
+  // Every airport the live LiveATC.net lookup successfully resolves gets
+  // remembered here, so the next time it's selected (this browser, this
+  // device) it's instant and needs no network/proxy call at all — the app
+  // builds up its own verified directory through real use instead of
+  // requiring a crawl of the entire site up front.
+  var LS_CACHE_KEY = "liveatc_feed_cache_v1";
+  var CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days, in case LiveATC renames a mount
+
+  function loadFeedCache(){
+    try{ return JSON.parse(localStorage.getItem(LS_CACHE_KEY) || "{}"); }
+    catch(e){ return {}; }
+  }
+  function cacheFeedsForAirport(icao, mounts){
+    try{
+      var cache = loadFeedCache();
+      cache[icao] = {mounts: mounts, ts: Date.now()};
+      localStorage.setItem(LS_CACHE_KEY, JSON.stringify(cache));
+    } catch(e){ /* localStorage unavailable — caching is a nice-to-have, not required */ }
+  }
+  function getCachedFeeds(icao){
+    var entry = loadFeedCache()[icao];
+    if(!entry || Date.now() - entry.ts > CACHE_TTL_MS) return null;
+    return entry.mounts;
+  }
+
+  // Optional bundled dataset: if a feeds.json sits next to this HTML file
+  // (same origin, so no CORS proxy needed at all), it's loaded once at
+  // startup and checked before falling back to a live lookup. Shape:
+  // { "KDEN": ["kden_twr","kden_app"], ... } or [{label,mount}, ...] per airport.
+  var BUNDLED_FEEDS = null;
+  function loadBundledFeeds(){
+    fetch("feeds.json", {cache:"no-store"})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(data){ if(data && typeof data === "object") BUNDLED_FEEDS = data; })
+      .catch(function(){ /* no bundled dataset shipped yet — falls back to live lookup + cache */ });
+  }
+
+  function getVerifiedPreset(icao){
+    var known = PRESETS.filter(function(p){ return p.icao === icao; })[0];
+    if(known) return known;
+    var dir = AIRPORTS.filter(function(a){ return a.icao === icao; })[0] || {};
+    if(BUNDLED_FEEDS && BUNDLED_FEEDS[icao] && BUNDLED_FEEDS[icao].length){
+      return {
+        icao: icao, name: dir.name || icao, city: dir.city || "", verified: true,
+        feeds: BUNDLED_FEEDS[icao].map(function(f){
+          return (typeof f === "string") ? {label:f, mount:f} : {label: f.label || f.mount, mount: f.mount};
+        })
+      };
+    }
+    var cached = getCachedFeeds(icao);
+    if(cached && cached.length){
+      return {
+        icao: icao, name: dir.name || icao, city: dir.city || "", verified: true, cached: true,
+        feeds: cached.map(function(m){ return {label:m, mount:m}; })
+      };
+    }
+    return null;
   }
 
   function highlightActiveFeed(mount){
@@ -621,11 +682,11 @@
     mountInput.value = a.icao.toLowerCase();
     setActiveAirport(a.icao); // weather/ATIS load immediately, independent of feed lookup
 
-    // If this airport is one of our hand-verified presets, reuse that data
-    // directly instead of re-discovering it over an unreliable network
-    // lookup — this is what made searching "KSTL" behave differently (and
-    // worse) than tapping the KSTL preset chip for the exact same airport.
-    var preset = PRESETS.filter(function(p){ return p.icao === a.icao; })[0];
+    // If this airport is a hand-verified preset, a bundled feeds.json entry,
+    // or something we've already successfully looked up before on this
+    // device, reuse that directly instead of re-discovering it over an
+    // unreliable network lookup every time.
+    var preset = getVerifiedPreset(a.icao);
     document.getElementById("liveSearchArea").innerHTML = "";
     if(preset){
       showPresetFeeds(preset);
@@ -766,6 +827,7 @@
         return;
       }
       status.textContent = mounts.length + " feed(s) found — tap to play:";
+      cacheFeedsForAirport(code, mounts); // remembered for next time, no network needed
       mounts.forEach(function(m){
         var row = document.createElement("div");
         row.className = "result-item";
@@ -1463,6 +1525,7 @@
   renderQuickPicks();
   showPresetFeeds(PRESETS[0]); // expand KSTL's feeds by default
   renderFavs();
+  loadBundledFeeds();
   setActiveAirport("KSTL"); // default weather/ATIS view on load; audio never autoplays
 })();
 </script>
